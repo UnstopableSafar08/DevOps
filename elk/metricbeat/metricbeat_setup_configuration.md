@@ -1,10 +1,6 @@
-# Metricbeat Setup and Configurations on RHEL 9.x
+# **Metricbeat Full Installation & Configuration (RHEL 9.6)**
 
 A **full, production-ready setup for Metricbeat on RHEL 9.6**, including installation, main configuration, and all requested module configs with SSL disabled by default and commented options for SSL. You can copy and deploy directly.
-
----
-
-# **Metricbeat Full Installation & Configuration (RHEL 9.6)**
 
 ---
 
@@ -12,10 +8,10 @@ A **full, production-ready setup for Metricbeat on RHEL 9.6**, including install
 
 ```bash
 # Download Metricbeat RPM
-curl -L -O https://artifacts.elastic.co/downloads/beats/metricbeat/metricbeat-8.8.0-x86_64.rpm
+curl -L -O https://artifacts.elastic.co/downloads/beats/metricbeat/metricbeat-9.1.2-x86_64.rpm
 
 # Install RPM
-rpm -vi metricbeat-8.8.0-x86_64.rpm
+rpm -vi metricbeat-*.rpm
 
 # Verify installation
 metricbeat version
@@ -47,7 +43,7 @@ setup.template.settings:
   index.codec: best_compression
 
 setup.kibana:
-  host: "http://localhost:80"
+  host: "http://localhost:5601"
   # SSL option:
   # host: "https://localhost:5601"
   # ssl.enabled: true
