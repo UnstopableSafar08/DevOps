@@ -1,0 +1,762 @@
+
+# Installation OUTPUT that will be helpful later.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ Elasticsearch security features have been automatically configured!
+✅ Authentication is enabled and cluster connections are encrypted.
+
+ℹ️  Password for the elastic user (reset with `bin/elasticsearch-reset-password -u elastic`):
+  3QT*BRuZNVz-5=*xI8HO
+
+ℹ️  HTTP CA certificate SHA-256 fingerprint:
+  e85e9b3b6f19143b1ac4d8388db9bf163a4311130718b79719e75c2b6f75e09b
+
+ℹ️  Configure Kibana to use this cluster:
+• Run Kibana and click the configuration link in the terminal when Kibana starts.
+• Copy the following enrollment token and paste it into Kibana in your browser (valid for the next 30 minutes):
+  eyJ2ZXIiOiI4LjguMCIsImFkciI6WyIxOTIuMTY4LjEyMS4xMTo5MjAwIl0sImZnciI6ImU4NWU5YjNiNmYxOTE0M2IxYWM0ZDgzODhkYjliZjE2M2E0MzExMTMwNzE4Yjc5NzE5ZTc1YzJiNmY3NWUwOWIiLCJrZXkiOiJJVXVoYjVVQjNMRE5idHI3cW41dzpXSHVTdXNUMFRqV3UzMnZrdDV4NkRRIn0=
+
+ℹ️  Configure other nodes to join this cluster:
+• On this node:
+  ⁃ Create an enrollment token with `bin/elasticsearch-create-enrollment-token -s node`.
+  ⁃ Uncomment the transport.host setting at the end of config/elasticsearch.yml.
+  ⁃ Restart Elasticsearch.
+• On other nodes:
+  ⁃ Start Elasticsearch with `bin/elasticsearch --enrollment-token <token>`, using the enrollment token that you generated.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+### -------------------------------------------------------------------------------------------------------------------
+### Basic config.
+```bash
+yum update -y
+sudo setenforce 0 # selinux permissive or disable on config file
+yum install -y vim tar wget zip unzip rsync net-tools curl traceroute
+```
+Firewall configurations.
+```bash
+systemctl stop firewalld ; systemctl disable firewalld
+```
+OR 
+```bash
+# Elasticsearch cluster communication
+sudo firewall-cmd --permanent --add-port=9300/tcp    # Required between all Elasticsearch nodes
+
+# Elasticsearch HTTP API (open on data/client nodes as needed)
+sudo firewall-cmd --permanent --add-port=9200/tcp
+
+# Kibana (usually only on client/UI node)
+sudo firewall-cmd --permanent --add-port=5601/tcp
+
+# Logstash (optional, only where Logstash is installed)
+sudo firewall-cmd --permanent --add-port=5044/tcp    # Beats input
+sudo firewall-cmd --permanent --add-port=5000/tcp    # TCP input (optional)
+sudo firewall-cmd --permanent --add-port=9600/tcp    # Monitoring API
+
+# Reach Rule - OPTIONAL -
+# Example: Allow 9300 only from other node IPs
+sudo firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="192.168.121.1/24" port protocol="tcp" port="9300" accept'
+
+# Reload firewalld
+sudo firewall-cmd --reload
+```
+Expanation:
+| Role        | Ports Required       | Description                             |
+|-------------|----------------------|-----------------------------------------|
+| **Master**  | 9300 (required)       | Cluster coordination                    |
+| **Data**    | 9300, 9200            | Stores data and responds to API queries |
+| **Client/Coord** | 9200, 9300         | Forwards queries to master/data nodes   |
+| **Kibana**  | 5601                  | Access via browser                      |
+| **Logstash**| 5044, 5000, 9600      | Accepts logs and monitors performance   |
+
+
+
+### Install Java-jdk 17 or later.
+# download link : https://bell-sw.com/pages/downloads/?version=java-21&os=linux&bitness=64&package=jdk
+```bash
+cd /opt/
+# wget "https://download.bell-sw.com/java/21.0.7+9/bellsoft-jdk21.0.7+9-linux-amd64.tar.gz" # for X86_64
+wget "https://download.bell-sw.com/java/21.0.7+9/bellsoft-jdk21.0.7+9-linux-aarch64.tar.gz" # for ARM(aarch64) architecture AmazonLinux
+tar xvzf bellsoft-jdk21*.tar.gz
+mv jdk-21.0.7 jdk21 # path is /opt/jdk21
+
+# JAVA_HOME Set.
+echo -e 'export JAVA_HOME=/opt/jdk21\nexport PATH=$JAVA_HOME/bin:$PATH' >> ~/.bash_profile && source ~/.bash_profile
+java -version
+```
+Some Basic config for Elasticsearch. JVM Options set and Swap off.
+```bash
+# jvm options set, set as per your RAM. i just set a 4GB
+echo -e "-Xms4g\n-Xmx4g\n$(cat /etc/elasticsearch/jvm.options)" | sudo tee /etc/elasticsearch/jvm.options > /dev/null
+
+# or just add a values inside the config
+sudo vim /etc/elasticsearch/jvm.options
+-Xms4g
+-Xmx4g
+
+# Restart the service
+sudo systemctl restart elasticsearch
+
+# verify the jvm options
+ps -ef | grep elasticsearch | grep Xmx
+
+# swap off
+sudo swapoff -a && sudo sed -i.bak '/swap/s/^/#/' /etc/fstab
+free -h
+cat /etc/fstab
+```
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+LINK : https://www.elastic.co/guide/en/elasticsearch/reference/8.18/targz.html
+Cluster : https://www.elastic.co/docs/deploy-manage/deploy/self-managed/installing-elasticsearch
+          https://www.elastic.co/guide/en/elasticsearch/reference/8.18/starting-elasticsearch.html 
+          https://www.elastic.co/guide/en/elasticsearch/reference/8.18/modules-discovery.html
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+### Insatll ElasticSearch Using yum repo.
+### This will install elasticsewarch 8.17 at this time (Jan 08, 2025).
+# Step 1: Import the GPG key for Elasticsearch
+sudo rpm --import https://artifacts.elastic.co/GPG-KEY-elasticsearch
+
+# Step 2: Create the Elasticsearch repository configuration
+echo -e "[elasticsearch-8.x]\nname=Elasticsearch repository for 8.x packages\nbaseurl=https://artifacts.elastic.co/packages/8.x/yum\ngpgcheck=1\ngpgkey=https://artifacts.elastic.co/GPG-KEY-elasticsearch\nenabled=1\nautorefresh=1\ntype=rpm-md" | sudo tee /etc/yum.repos.d/elasticsearch.repo
+
+# Step 3: Install Elasticsearch
+sudo yum install -y elasticsearch
+
+
+
+# Self-signed cert using CA.
+# Make the certificate authority(CA).
+mkdir -p /etc/elasticsearch/certs/ca
+/usr/share/elasticsearch/bin/elasticsearch-certutil ca --pem --out /etc/elasticsearch/certs/ca.zip
+cd /etc/elasticsearch/certs/
+unzip ca.zip
+
+# Generate a Self-signed cert that signed by above CA.
+/usr/share/elasticsearch/bin/elasticsearch-certutil cert \
+  --out /etc/elasticsearch/certs/elastic.zip \
+  --name elastic \
+  --ca-cert /etc/elasticsearch/certs/ca/ca.crt \
+  --ca-key /etc/elasticsearch/certs/ca/ca.key \
+  --ip 0.0.0.0 \
+  --pem;
+cd /etc/elasticsearch/certs/;
+unzip elastic.zip
+### Proper file permission.
+chown -R elasticsearch:elasticsearch /etc/elasticsearch ; \
+sudo chown -R elasticsearch:elasticsearch /etc/elasticsearch /var/lib/elasticsearch /var/log/elasticsearch
+
+
+Replace the ip `0.0.0.0` as per your host(server) ip.
+### Hint. Also we can use a specific ip or custom domain name.
+  --dns node1.elk.local
+  --ip 192.168.121.1100
+
+# ------------- Password reset -----------------
+```bash
+# /usr/share/elasticsearch/bin/elasticsearch-reset-password -u elastic -f
+/usr/share/elasticsearch/bin/elasticsearch-reset-password -i -u elastic
+This tool will reset the password of the [elastic] user to an autogenerated value.
+The password will be printed in the console.
+Please confirm that you would like to continue [y/N]y
+enter new pass: elastic@123#
+```
+curl -X GET -u elastic:elastic@123# https://192.168.121.1100:9200 --cacert /etc/elasticsearc/certs/ca/ca.crt
+
+## edit the elasticsearch.yml file
+##### elasticsearch.yml #####
+```yml
+cluster.name: elk
+node.name: node1
+
+path.data: /var/lib/elasticsearch
+path.logs: /var/log/elasticsearch
+
+network.host: 192.168.121.110 # or 0.0.0.0, accessiable only by ip from the outside
+http.port: 9200
+transport.port: 9300
+
+xpack.security.enabled: true
+xpack.security.enrollment.enabled: true
+
+xpack.security.http.ssl:
+  enabled: true
+  key: /etc/elasticsearch/certs/elastic/elastic.key
+  certificate: /etc/elasticsearch/certs/elastic/elastic.crt
+  certificate_authorities: /etc/elasticsearch/certs/ca/ca.crt
+#  keystore.path: certs/http.p12
+
+xpack.security.transport.ssl:
+  enabled: true
+  verification_mode: certificate
+  keystore.path: /etc/elasticsearch/certs/transport.p12
+  truststore.path: /etc/elasticsearch/certs/transport.p12
+
+cluster.initial_master_nodes: ["node1"] # node.name
+http.host: 192.168.121.110 # or 0.0.0.0, accessiable only by ip from the outside
+transport.host: 0.0.0.0
+##### elasticsearch.yml end here #####
+```
+
+Explain:
+| Setting                                   | Value  | Description                                                                 |
+|-------------------------------------------|--------|-----------------------------------------------------------------------------|
+| `xpack.security.enabled`                  | `true` | Enables all security features like authentication, authorization, TLS.     |
+| `xpack.security.enrollment.enabled`       | `true` | Allows secure enrollment of new nodes and Kibana via tokens.               |
+| `xpack.security.http.ssl.enabled`         | `true` | Enables **HTTPS** for the Elasticsearch REST API (`9200`).                 |
+| `xpack.security.transport.ssl.enabled`    | `true` | Enables **TLS encryption** between cluster nodes (`9300`).                 |
+
+
+### Config test command
+/usr/share/elasticsearch/bin/elasticsearch test \
+  config -c /etc/elasticsearch/elasticsearch.yml \
+  --path.home /usr/share/elasticsearch \
+  --path.data /var/lib/elasticsearch
+
+# Step 4: Enable Elasticsearch to start on boot and start the service
+```bash
+systemctl daemon-reload
+sudo systemctl enable elasticsearch
+sudo systemctl start elasticsearch
+```
+
+# Step 5: Verify the installation (this should return Elasticsearch info)
+
+# to check the elastic service.
+[root@rockey9 ~]# curl -XGET -k -uelastic:elastic@123# https://192.168.121.110:9200
+{
+  "name" : "node-1",
+  "cluster_name" : "elk",
+  "cluster_uuid" : "pS88iWzIQc6_zby-H7Mn7Q",
+  "version" : {
+    "number" : "8.17.3",
+    "build_flavor" : "default",
+    "build_type" : "rpm",
+    "build_hash" : "a091390de485bd4b127884f7e565c0cad59b10d2",
+    "build_date" : "2025-02-28T10:07:26.089129809Z",
+    "build_snapshot" : false,
+    "lucene_version" : "9.12.0",
+    "minimum_wire_compatibility_version" : "7.17.0",
+    "minimum_index_compatibility_version" : "7.0.0"
+  },
+  "tagline" : "You Know, for Search"
+}
+
+
+
+#### elk commands - dev tools
+GET _cluster/health 
+GET /_cat/nodes?v
+GET /_cat/shards?v
+
+
+# Check Elasticsearch Cluster Health
+curl -u elastic:elastic@123# -X GET "http://192.168.121.110:9200/_cluster/health?pretty"
+
+# Get Information About Cluster Nodes
+curl -u elastic:elastic@123# -X GET "http://192.168.121.110:9200/_cat/nodes?v"
+
+# Get Detailed Information About a Specific Node (replace 'your_node_id' with actual node ID)
+curl -u elastic:elastic@123# -X GET "http://192.168.121.110:9200/_nodes/your_node_id?pretty"
+
+# Get Information About All Node Roles
+curl -u elastic:elastic@123# -X GET "http://192.168.121.110:9200/_cat/nodeattrs?v"
+
+# List All Indices
+curl -u elastic:elastic@123# -X GET "http://192.168.121.110:9200/_cat/indices?v"
+
+# Get Information About a Specific Index (replace 'your_index' with index name)
+curl -u elastic:elastic@123# -X GET "http://192.168.121.110:9200/your_index?pretty"
+
+# Create an Index (replace 'your_index' with the desired index name)
+curl -u elastic:elastic@123# -X PUT "http://192.168.121.110:9200/your_index"
+
+# Delete an Index (replace 'your_index' with the index name you want to delete)
+curl -u elastic:elastic@123# -X DELETE "http://192.168.121.110:9200/your_index"
+
+# Get Cluster Nodes Information
+curl -u elastic:elastic@123# -X GET "http://192.168.121.110:9200/_cat/nodes?v"
+
+# Search Data in an Index (replace 'your_index' and 'your_query' with actual values)
+curl -u elastic:elastic@123# -X GET "http://192.168.121.110:9200/your_index/_search?q=your_query&pretty"
+
+# Get Cluster Settings
+curl -u elastic:elastic@123# -X GET "http://192.168.121.110:9200/_cluster/settings?pretty"
+
+# Add a Document to an Index (replace 'your_index' and 'your_document_id' with actual values)
+curl -u elastic:elastic@123# -X POST "http://192.168.121.110:9200/your_index/_doc/your_document_id" -H 'Content-Type: application/json' -d'
+{
+  "field1": "value1",
+  "field2": "value2"
+}
+'
+
+# Get a Document from an Index (replace 'your_index' and 'your_document_id' with actual values)
+curl -u elastic:elastic@123# -X GET "http://192.168.121.110:9200/your_index/_doc/your_document_id?pretty"
+
+# Delete a Document from an Index (replace 'your_index' and 'your_document_id' with actual values)
+curl -u elastic:elastic@123# -X DELETE "http://192.168.121.110:9200/your_index/_doc/your_document_id"
+
+# Update a Document in an Index (replace 'your_index' and 'your_document_id' with actual values)
+curl -u elastic:elastic@123# -X POST "http://192.168.121.110:9200/your_index/_update/your_document_id" -H 'Content-Type: application/json' -d'
+{
+  "doc": {
+    "field1": "new_value"
+  }
+}
+'
+
+# Get Cluster Stats
+curl -u elastic:elastic@123# -X GET "http://192.168.121.110:9200/_cluster/stats?pretty"
+
+# Shutdown Elasticsearch Node
+curl -u elastic:elastic@123# -X POST "http://192.168.121.110:9200/_shutdown"
+
+
+[root@rockey9 ~]#
+
+# {
+#   "name" : "your-node-name",
+#   "cluster_name" : "elasticsearch",
+#   "cluster_uuid" : "some-uuid",
+#   "version" : {
+#     "number" : "8.x.x",
+#     "build_flavor" : "default",
+#     "build_type" : "deb",
+#     "build_hash" : "abcd1234",
+#     "build_date" : "2022-01-01T00:00:00.000000Z",
+#     "build_snapshot" : false,
+#     "lucene_version" : "8.x",
+#     "minimum_wire_compatibility_version" : "7.x",
+#     "minimum_index_compatibility_version" : "7.x"
+#   },
+#   "tagline" : "You Know, for Search"
+# }
+
+
+
+# Step 6: (Optional) Edit the Elasticsearch configuration if needed
+# sudo vi /etc/elasticsearch/elasticsearch.yml
+
+# Step 7: Restart Elasticsearch if configuration changes were made
+# sudo systemctl restart elasticsearch
+
+
+
+--------------------------- Security autoconfiguration information ------------------------------
+
+Authentication and authorization are enabled.
+TLS for the transport and HTTP layers is enabled and configured.
+
+The generated password for the elastic built-in superuser is : YS0H=rAujvGMbHfEG5Vf
+
+If this node should join an existing cluster, you can reconfigure this with
+'/usr/share/elasticsearch/bin/elasticsearch-reconfigure-node --enrollment-token <token-here>'
+after creating an enrollment token on your existing cluster.
+
+You can complete the following actions at any time:
+
+Reset the password of the elastic built-in superuser with
+'/usr/share/elasticsearch/bin/elasticsearch-reset-password -u elastic'.
+
+Generate an enrollment token for Kibana instances with
+ '/usr/share/elasticsearch/bin/elasticsearch-create-enrollment-token -s kibana'.
+
+Generate an enrollment token for Elasticsearch nodes with
+'/usr/share/elasticsearch/bin/elasticsearch-create-enrollment-token -s node'.
+
+-------------------------------------------------------------------------------------------------
+
+### NOT starting on installation, please execute the following statements to configure elasticsearch service to start automatically using systemd
+ sudo systemctl daemon-reload
+ sudo systemctl enable elasticsearch.service
+### You can start elasticsearch service by executing
+ sudo systemctl start elasticsearch.service
+
+curl -k -u elastic:YS0H=rAujvGMbHfEG5Vf -X GET "https://localhost:9200/_cluster/health?pretty"
+curl -k -u elastic:vAKMYiX3MiLVmg4ZjoVa -X GET "https://localhost:9200/_cat/indices?v"
+
+/usr/share/elasticsearch/bin/elasticsearch-setup-passwords auto --url="http://localhost:9200/"
+/usr/share/elasticsearch/bin/elasticsearch-reset-password -u elastic
+
+
+# certs
+/etc/elasticsearch/certs/http.p12
+/etc/elasticsearch/certs/transport.p12
+/etc/elasticsearch/certs/http_ca.crt
+
+###### complete uninstall ######
+sudo systemctl stop elasticsearch
+sudo yum remove elasticsearch -y
+sudo rm -rf /etc/elasticsearch /var/lib/elasticsearch /var/log/elasticsearch /usr/share/elasticsearch
+sudo rm -f /usr/lib/systemd/system/elasticsearch.service
+sudo systemctl daemon-reload
+sudo systemctl reset-failed
+sudo userdel elasticsearch
+sudo groupdel elasticsearch
+sudo yum clean all
+rpm -qa elasticsearch
+rpm -qa | grep elastic*
+yum clean all
+yum autoremove -y
+
+######
+######
+###### KIBANA ######
+sudo rpm --import https://artifacts.elastic.co/GPG-KEY-elasticsearch
+echo -e "[elastic-7.x]\nname=Elastic repository for 7.x packages\nbaseurl=https://artifacts.elastic.co/packages/7.x/yum\ngpgcheck=1\ngpgkey=https://artifacts.elastic.co/GPG-KEY-elasticsearch\nenabled=1\nautorefresh=1\ntype=rpm-md" | sudo tee /etc/yum.repos.d/elastic-7.x.repo
+sudo yum install -y kibana
+vi /etc/kibana/kibana.yml
+  server.port: 5601
+  server.host: "192.168.121.110"    # To allow access from any IP (use a specific IP for more security)
+  elasticsearch.hosts: ["http://192.168.121.110:9200"]  # Use your Elasticsearch server's IP and port
+
+
+# creating a service token
+curl -X POST -u elastic:elastic@123# https://localhost:9200/_security/service/elastic/kibana/credential/token/kibana_token
+# {"created":true,"token":{"name":"kibana_token","value":"AAEAAWVsYXN0aWMva2liYW5hL2tpYmFuYV90b2tlbjptVWREVFZxZlR3NmNVbDBONXlDbDl3"}}
+
+# add the token to the kibana keystore
+/usr/share/kibana/bin/kibana-keystore add elasticsearch.serviceAccountToken # now paste the `AAEAAWVsYXN0aWMva2liYW5hL2tpYmFuYV90b2tlbjptVWREVFZxZlR3NmNVbDBONXlDbDl3` done
+
+
+
+#### for Kibana
+mkdir -p /etc/kibana/certs
+cp /etc/elasticsearch/certs/ca/ca.crt /etc/kibana/certs/ # copy this file form elasticsearch ./ca/
+/usr/share/elasticsearch/bin/elasticsearch-certutil cert \
+  --out /etc/kibana//certs/kibana.zip \
+  --name kibana \
+  --ca-cert /etc/elasticsearch/certs/ca/ca.crt \
+  --ca-key /etc/elasticsearch/certs/ca/ca.key \
+  --ip 192.168.121.110 \
+  --pem
+cd /etc/kibana/certs/ ;
+unzip kibana.zip
+
+chown -R kibana:kibana /etc/kibana
+
+
+####### kibana.yml #######
+server.port: 5601
+server.host: "0.0.0.0"
+
+elasticsearch.hosts: ["https://192.168.121.110:9200"]
+
+elasticsearch.ssl.certificateAuthorities: ["/etc/kibana/certs/ca.crt"] # the ca.crt file is copied from /etc/elasticsearch/certs/ca/ca.crt
+
+server.ssl.enabled: true
+server.ssl.certificate: /etc/kibana/certs/kibana/kibana.crt
+server.ssl.key: /etc/kibana/certs/kibana/kibana.key
+
+elasticsearch.ssl.verificationMode: full
+
+logging:
+  appenders:
+    file:
+      type: file
+      fileName: /var/log/kibana/kibana.log
+      layout:
+        type: json
+  root:
+    appenders:
+      - default
+      - file
+
+pid.file: /run/kibana/kibana.pid
+####### kibana.yml end here #######
+sudo systemctl start kibana 
+sudo systemctl enable kibana 
+sudo systemctl restart kibana
+
+
+URL : https://192.168.121.110:5601/login?next=%2F
+
+
+# Encryption Key Generation;
+/usr/share/kibana/bin/kibana-encryption-keys generate # generates random keys
+/usr/share/kibana/bin/kibana-encryption-keys generate 'my-secure-key-1234' # generate the keys based on passed sting. 
+
+o/p
+Settings:
+xpack.encryptedSavedObjects.encryptionKey: 323bad297d90ace685ece47e9892d9b5
+xpack.reporting.encryptionKey: e9df7c933095f45ad7683ce25c071e6a
+xpack.security.encryptionKey: a90ac8764d1c898d9b9698baa0fb07c5
+
+# add a encryptionKey on kibana.yml file
+# paste anywhere inside the yml file
+xpack.encryptedSavedObjects.encryptionKey: 323bad297d90ace685ece47e9892d9b5 
+
+# or 
+/usr/share/kibana/bin/kibana-keystore add xpack.encryptedSavedObjects.encryptionKey
+paste: 323bad297d90ace685ece47e9892d9b5
+
+# restart Kibana
+
+
+######
+######
+###### HeartBeat ######
+###
+LINK : https://elastic.co/guide/en/beats/heartbeat/current/heartbeat-installation-configuration.html
+yum : https://www.elastic.co/guide/en/beats/heartbeat/current/setup-repositories.html
+yml-file: https://www.elastic.co/guide/en/beats/heartbeat/current/heartbeat-reference-yml.html
+
+sudo rpm --import https://artifacts.elastic.co/GPG-KEY-elasticsearch
+
+cat <<EOF | sudo tee /etc/yum.repos.d/elastic.repo
+[elastic-8.x]
+name=Elastic repository for 8.x packages
+baseurl=https://artifacts.elastic.co/packages/8.x/yum
+gpgcheck=1
+enabled=1
+autorefresh=1
+type=rpm-md
+EOF
+
+sudo yum install heartbeat-elastic -y
+
+sudo systemctl daemon-reload
+sudo systemctl enable heartbeat
+sudo systemctl start heartbeat
+sudo systemctl status heartbeat
+
+
+/usr/share/elasticsearch/bin/elasticsearch-service-tokens create elastic/kibana kibana-token
+/usr/share/elasticsearch/bin/elasticsearch-service-tokens create elastic/fleet-server heartbeat-token
+AAEAAWVsYXN0aWMvZmxlZXQtc2VydmVyL2hlYXJ0YmVhdC10b2tlbjpoenhiVXlKZVNfaVdQSldzQndtMHhn
+
+
+
+
+### Config test command
+/usr/share/heartbeat/bin/heartbeat test \
+  config -c /etc/heartbeat/heartbeat.yml \
+  --path.home /usr/share/heartbeat \
+  --path.data /var/lib/heartbeat
+# O/P: Config OK
+
+
+### Connection test
+/usr/share/heartbeat/bin/heartbeat test \
+  output  -c /etc/heartbeat/heartbeat.yml \
+  --path.home /usr/share/heartbeat \
+  --path.data /var/lib/heartbeat
+
+# elasticsearch: https://192.168.121.110:9200...
+#   parse url... OK
+#   connection...
+#     parse host... OK
+#     dns lookup... OK
+#     addresses: 192.168.121.110
+#     dial up... OK
+#   TLS...
+#     security: server's certificate chain verification is enabled
+#     handshake... OK
+#     TLS version: TLSv1.3
+#     dial up... OK
+#   talk to server... OK
+#   version: 8.17.3
+
+
+POST /_security/api_key/grant
+{
+  "grant_type": "password",
+  "username": "heartbeat-publisher",
+  "password": "heartbeat-publisher",
+  "api_key": {
+    "name": "heartbeat-publisher"
+  }
+}
+{
+  "id": "f2Z_fJUBeQWL6G0VUCSl",
+  "name": "heartbeat-publisher",
+  "api_key": "AnNzbKSlT7mgbiVb7Q-4ZA",
+  "encoded": "ZjJaX2ZKVUJlUVdMNkcwVlVDU2w6QW5OemJLU2xUN21nYmlWYjdRLTRaQQ=="
+}
+# curl -X POST -H "Authorization: ApiKey $ELASTIC_API_KEY" -H "Content-Type: application/json" -d '{"grant_type":"password","username":"heartbeat-publisher","password":"heartbeat-publisher","api_key":{"name":"heartbeat-publisher"}}' "https://192.168.121.110:9200/_security/api_key/grant"
+id:api_key
+f2Z_fJUBeQWL6G0VUCSl:AnNzbKSlT7mgbiVb7Q-4ZA
+
+
+
+output.elasticsearch:
+  api_key: "ES_API_KEY"
+
+
+/usr/share/heartbeat/bin/heartbeat keystore add ES_API_KEY -c /etc/heartbeat/heartbeat.yml --path.data /var/lib/heartbeat --path.home /usr/share/heartbeat
+and paste the: f2Z_fJUBeQWL6G0VUCSl:AnNzbKSlT7mgbiVb7Q-4ZA
+
+/usr/share/heartbeat/heartbeat -e -c /etc/heartbeat/heartbeat.yml --path.home /usr/share/heartbeat --path.config /etc/heartbeat
+/usr/share/heartbeat/bin/heartbeat -e -c /etc/heartbeat/heartbeat.yml test config
+  api_key: "$ES_API_KEY"
+
+
+
+# POST /_security/api_key
+# {
+#   "name": "heartbeat-a", 
+#   "role_descriptors": {
+#     "heartbeat_writer": { 
+#       "cluster": ["monitor", "read_ilm", "read_pipeline"],
+#       "index": [
+#         {
+#           "names": ["heartbeat-*"],
+#           "privileges": ["view_index_metadata", "create_doc", "auto_configure"]
+#         }
+#       ]
+#     }
+#   }
+# }
+# {
+#   "id": "vGaBfJUBeQWL6G0VliQR",
+#   "name": "heartbeat-a",
+#   "api_key": "1lxOFczVSQSw80V9LIMfZw",
+#   "encoded": "dkdhQmZKVUJlUVdMNkcwVmxpUVI6MWx4T0ZjelZTUVN3ODBWOUxJTWZadw=="
+# }
+
+# POST /_security/api_key
+# {
+#   "name": "heartbeat-b", 
+#   "role_descriptors": {
+#     "heartbeat_monitoring": { 
+#       "cluster": ["monitor"],
+#       "index": [
+#         {
+#           "names": [".monitoring-beats-*"],
+#           "privileges": ["create_index", "create"]
+#         }
+#       ]
+#     }
+#   }
+# }
+
+# {
+#   "id": "zmaCfJUBeQWL6G0VMCTl",
+#   "name": "heartbeat-b",
+#   "api_key": "UCcUlifGTAK1ddoiz_Lk0g",
+#   "encoded": "em1hQ2ZKVUJlUVdMNkcwVk1DVGw6VUNjVWxpZkdUQUsxZGRvaXpfTGswZw=="
+# }
+monitoring.elasticsearch:
+  api_key: zmaCfJUBeQWL6G0VMCTl:UCcUlifGTAK1ddoiz_Lk0g 
+
+####### uninstall
+sudo systemctl stop heartbeat
+sudo systemctl disable heartbeat
+sudo systemctl status heartbeat
+sudo yum remove heartbeat
+sudo rpm -e heartbeat
+sudo rm -rf /usr/share/heartbeat /etc/heartbeat /var/log/heartbeat
+ls /etc/systemd/system/heartbeat.service /lib/systemd/system/heartbeat.service
+sudo rm -f /etc/systemd/system/heartbeat.service /lib/systemd/system/heartbeat.service
+sudo systemctl daemon-reload
+sudo rm -rf /etc/heartbeat /var/lib/heartbeat /var/log/heartbeat
+ps aux | grep heartbeat
+systemctl status heartbeat
+/etc/init.d/heartbeat-elastic status
+sudo rm -f /etc/init.d/heartbeat-elastic
+sudo systemctl daemon-reexec
+/etc/init.d/heartbeat-elastic status
+systemctl status hearbeat
+
+
+output.elasticsearch:
+  api_key: "${ES_API_KEY}"
+  #username: "elastic"
+  #password: ""
+
+
+
+
+Setup Elasticsearch :
+
+1  apt-get update
+    2  sudo apt-get install openjdk-8-jdk
+    3  wget -qO - https://artifacts.elastic.co/GPG-KEY-... | sudo apt-key add -
+    4  sudo apt-get install apt-transport-https
+    5  echo "deb https://artifacts.elastic.co/packages... stable main" | sudo tee –a /etc/apt/sources.list.d/elastic-7.x.list
+    6  sudo apt-get update
+    7  sudo apt-get install elasticsearch
+    8  sudo nano /etc/elasticsearch/elasticsearch.yml
+  network.host: 10.0.44.189
+  http.port: 9200
+    9 systemctl start elasticsearch.service
+  10  curl http://10.0.44.189:9200 
+
+
+Setup Kibana
+
+1  apt-get update
+    2  sudo apt-get install openjdk-8-jdk
+    3  wget -qO - https://artifacts.elastic.co/GPG-KEY-... | sudo apt-key add -
+    4  sudo apt-get install apt-transport-https
+    5  echo "deb https://artifacts.elastic.co/packages... stable main" | sudo tee –a /etc/apt/sources.list.d/elastic-7.x.list
+    6  sudo apt-get update
+    7  sudo apt-get install kibana
+    8  sudo nano /etc/kibana/kibana.yml
+  server.port: 5601
+  server.host: "10.0.43.154"
+  elasticsearch.hosts: ["http://10.0.44.189:9200"]
+    9  systemctl start kibana
+   10  systemctl status kibana
+   11  tail -f /var/log/kibana/kibana.log
+
+
+Setup Logstash
+
+logstash pipeline samples : https://www.elastic.co/guide/en/logst... 
+   12  sudo apt-get install logstash
+   13  cd /etc/logstash/conf.d/
+   14  vim apache.conf
+logstash pipeline for apache using filebeat 
+   15  curl -L -O https://artifacts.elastic.co/download...
+   16  dpkg -i filebeat-7.17.6-amd64.deb 
+   17  sudo filebeat modules enable system
+   18  systemctl start logstash.service
+
+
+Client Setup (Apache Web server)
+
+    1  curl -L -O https://artifacts.elastic.co/download...
+    2  dpkg -i filebeat-7.17.6-amd64.deb 
+    3  vim /etc/filebeat/filebeat.yml
+  paths:
+/var/log/apache2/*.log
+  output.logstash:
+    The Logstash hosts
+    hosts: ["10.0.43.154:5044"]
+   4  sudo filebeat setup --index-management -E output.logstash.enabled=false -E 'output.elasticsearch.hosts=["10.0.44.189:9200"]'
+   5  sudo filebeat modules enable system
+   6  sudo filebeat modules enable apache
+   7  systemctl restart filebeat.service
+   8  filebeat test output
+
+
+
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Install ELK Stack using Tarball. LINK : https://www.elastic.co/guide/en/elasticsearch/reference/8.18/targz.html
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+useradd -m -d /opt/ -s /bin/bash elk
+passwd elk  # password : elastic
+
+
+cd /opt
+wget https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-8.18.0-linux-x86_64.tar.gz \
+ https://artifacts.elastic.co/downloads/logstash/logstash-8.18.0-linux-x86_64.tar.gz \
+ https://artifacts.elastic.co/downloads/kibana/kibana-8.18.0-linux-x86_64.tar.gz \
+ https://artifacts.elastic.co/downloads/beats/heartbeat/heartbeat-8.18.0-linux-x86_64.tar.gz
+
+tar -xvzf elasticsearch-8.18.0-linux-x86_64.tar.gz
+tar -xvzf logstash-8.18.0-linux-x86_64.tar.gz
+tar -xvzf kibana-8.18.0-linux-x86_64.tar.gz
+tar -xvzf heartbeat-8.18.0-linux-x86_64.tar.gz
+mkdir tarball
+mv *.tar.gz tarball/
+chown -R elk:elk /opt/elasticsearch-8.18.0 /opt/logstash-8.18.0 /opt/kibana-8.18.0 /opt/heartbeat-*
+su - elk
+
+# stop elk
+pkill -f elasticsearch
+/opt/elasticsearch-8.18.0/bin/elasticsearch 
+# for background process.
+# /opt/elasticsearch-8.18.0/bin/elasticsearch -d
