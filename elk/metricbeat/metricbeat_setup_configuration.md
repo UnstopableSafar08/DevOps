@@ -1,10 +1,41 @@
 # Metricbeat Setup and Configurations on RHEL 9.x
 
-**Metricbeat configuration with SSL disabled by default**, plus **comments showing how to enable SSL** using your provided certificate. I’ve added these comments to all relevant config sections.
+A **full, production-ready setup for Metricbeat on RHEL 9.6**, including installation, main configuration, and all requested module configs with SSL disabled by default and commented options for SSL. You can copy and deploy directly.
 
 ---
 
-### 1. **metricbeat.yml**
+# **Metricbeat Full Installation & Configuration (RHEL 9.6)**
+
+---
+
+## **1. Install Metricbeat**
+
+```bash
+# Download Metricbeat RPM
+curl -L -O https://artifacts.elastic.co/downloads/beats/metricbeat/metricbeat-8.8.0-x86_64.rpm
+
+# Install RPM
+rpm -vi metricbeat-8.8.0-x86_64.rpm
+
+# Verify installation
+metricbeat version
+```
+
+---
+
+## **2. Enable Modules**
+
+```bash
+metricbeat modules enable system
+metricbeat modules enable elasticsearch
+metricbeat modules enable elasticsearch-xpack
+metricbeat modules enable logstash
+metricbeat modules enable logstash-xpack
+```
+
+---
+
+## **3. Metricbeat Main Configuration: `metricbeat.yml`**
 
 ```yaml
 metricbeat.config.modules:
@@ -16,8 +47,8 @@ setup.template.settings:
   index.codec: best_compression
 
 setup.kibana:
-  host: "http://localhost:5601"
-  # To enable SSL for Kibana, uncomment below lines and provide correct CA certificate
+  host: "http://localhost:80"
+  # SSL option:
   # host: "https://localhost:5601"
   # ssl.enabled: true
   # ssl.certificate_authorities: ["/etc/metricbeat/certs/ca_elk.local.crt"]
@@ -26,12 +57,12 @@ output.elasticsearch:
   hosts: ["http://localhost:9200"]
   username: "elastic"
   password: "elastic@123#"
-  ssl.enabled: false  # disable SSL
-  # To enable SSL, use:
+  ssl.enabled: false
+  # SSL option:
   # hosts: ["https://localhost:9200"]
   # ssl.enabled: true
   # ssl.certificate_authorities: ["/etc/metricbeat/certs/ca_elk.local.crt"]
-  # ssl.verification_mode: full  # or none if self-signed
+  # ssl.verification_mode: full
 
 processors:
   - add_host_metadata: ~
@@ -42,9 +73,49 @@ processors:
 
 ---
 
-### 2. **Modules**
+## **4. Modules Configuration**
 
-#### a) `modules.d/elasticsearch.yml`
+### **a) System Module: `modules.d/system.yml`**
+
+```yaml
+- module: system
+  period: 10s
+  metricsets:
+    - cpu
+    - load
+    - memory
+    - network
+    - process
+    - process_summary
+    - socket_summary
+  process.include_top_n:
+    by_cpu: 5
+    by_memory: 5
+
+- module: system
+  period: 1m
+  metricsets:
+    - filesystem
+    - fsstat
+  processors:
+    - drop_event.when.regexp:
+        system.filesystem.mount_point: '^/(sys|cgroup|proc|dev|etc|host|lib|snap)($|/)'
+    - drop_event.when.equals:
+        system.filesystem.mount_point: "/var"
+
+- module: system
+  period: 15m
+  metricsets:
+    - uptime
+
+# SSL option for monitoring remote hostfs:
+# hostfs: "/hostfs"
+# ssl.certificate_authorities: ["/etc/metricbeat/certs/ca_elk.local.crt"]
+```
+
+---
+
+### **b) Elasticsearch Module: `modules.d/elasticsearch.yml`**
 
 ```yaml
 - module: elasticsearch
@@ -56,13 +127,15 @@ processors:
   username: "elastic"
   password: "elastic@123#"
   ssl.enabled: false
-  # To enable SSL:
+  # SSL option:
   # hosts: ["https://localhost:9200"]
   # ssl.enabled: true
   # ssl.certificate_authorities: ["/etc/metricbeat/certs/ca_elk.local.crt"]
 ```
 
-#### b) `modules.d/elasticsearch-xpack.yml`
+---
+
+### **c) Elasticsearch X-Pack Module: `modules.d/elasticsearch-xpack.yml`**
 
 ```yaml
 - module: elasticsearch
@@ -72,13 +145,15 @@ processors:
   username: "elastic"
   password: "elastic@123#"
   ssl.enabled: false
-  # To enable SSL:
+  # SSL option:
   # hosts: ["https://localhost:9200"]
   # ssl.enabled: true
   # ssl.certificate_authorities: ["/etc/metricbeat/certs/ca_elk.local.crt"]
 ```
 
-#### c) `modules.d/logstash.yml`
+---
+
+### **d) Logstash Module: `modules.d/logstash.yml`**
 
 ```yaml
 - module: logstash
@@ -87,20 +162,7 @@ processors:
     - node_stats
   period: 10s
   hosts: ["http://localhost:9600"]
-  # To enable SSL for Logstash HTTP API:
-  # hosts: ["https://localhost:9600"]
-  # ssl.enabled: true
-  # ssl.certificate_authorities: ["/etc/metricbeat/certs/ca_elk.local.crt"]
-```
-
-#### d) `modules.d/logstash-xpack.yml`
-
-```yaml
-- module: logstash
-  xpack.enabled: true
-  period: 10s
-  hosts: ["http://localhost:9600"]
-  # To enable SSL for Logstash X-Pack API:
+  # SSL option:
   # hosts: ["https://localhost:9600"]
   # ssl.enabled: true
   # ssl.certificate_authorities: ["/etc/metricbeat/certs/ca_elk.local.crt"]
@@ -108,17 +170,51 @@ processors:
 
 ---
 
-### 3. **Notes for enabling SSL**
+### **e) Logstash X-Pack Module: `modules.d/logstash-xpack.yml`**
 
-1. Make sure the certificate exists and is readable:
-
-```bash
-ls -l /etc/metricbeat/certs/ca_elk.local.crt
+```yaml
+- module: logstash
+  xpack.enabled: true
+  period: 10s
+  hosts: ["http://localhost:9600"]
+  # SSL option:
+  # hosts: ["https://localhost:9600"]
+  # ssl.enabled: true
+  # ssl.certificate_authorities: ["/etc/metricbeat/certs/ca_elk.local.crt"]
 ```
 
-2. Change all `http://` to `https://` in the `hosts` section when enabling SSL.
-3. Set `ssl.enabled: true` and provide the path to the CA certificate.
-4. For self-signed certs, you may use `ssl.verification_mode: none`. For trusted CA, use `full`.
+---
+
+## **5. Verify Configuration**
+
+```bash
+# Test config
+metricbeat test config
+
+# List enabled modules
+metricbeat modules list
+```
+
+---
+
+## **6. Start Metricbeat Service**
+
+```bash
+systemctl enable metricbeat
+systemctl start metricbeat
+
+# Check status
+systemctl status metricbeat
+```
+
+---
+
+## ✅ **Notes**
+
+1. SSL is **disabled by default**; you can enable it by changing `ssl.enabled: true` and updating hosts to `https://`.
+2. All modules (`system`, `elasticsearch`, `elasticsearch-xpack`, `logstash`, `logstash-xpack`) are configured.
+3. The system module monitors CPU, memory, network, processes, filesystem, and uptime.
+4. The configuration is ready for **RHEL 9.6** and can be copied to other nodes directly.
 
 ---
 
