@@ -108,7 +108,15 @@ processors:
 # hostfs: "/hostfs"
 # ssl.certificate_authorities: ["/etc/metricbeat/certs/ca_elk.local.crt"]
 ```
+Check the COnfigurations;
+```bash
+metricbeat test modules system
+metricbeat test config
 
+# restart
+systemctl restart metricbeat
+systemctl status metricbeat
+```
 ---
 
 ### **b) Elasticsearch Module: `modules.d/elasticsearch.yml`**
