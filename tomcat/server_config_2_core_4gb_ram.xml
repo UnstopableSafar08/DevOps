@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Server port="8005" shutdown="SHUTDOWN">
+    
+    <!-- Essential Listeners -->
+    <Listener className="org.apache.catalina.startup.VersionLoggerListener" />
+    <Listener className="org.apache.catalina.core.AprLifecycleListener" SSLEngine="on" />
+    <!-- Disabled to save memory -->
+    <!-- <Listener className="org.apache.catalina.core.JreMemoryLeakPreventionListener" /> -->
+    <Listener className="org.apache.catalina.mbeans.GlobalResourcesLifecycleListener" />
+    <Listener className="org.apache.catalina.core.ThreadLocalLeakPreventionListener" />
+    
+    <GlobalNamingResources>
+        <Resource name="UserDatabase" 
+                  auth="Container" 
+                  type="org.apache.catalina.UserDatabase" 
+                  description="User database that can be updated and saved" 
+                  factory="org.apache.catalina.users.MemoryUserDatabaseFactory" 
+                  pathname="conf/tomcat-users.xml" />
+    </GlobalNamingResources>
+    
+    <Service name="Catalina">
+        
+        <!-- Thread Pool Executor optimized for 2 cores -->
+        <Executor name="tomcatThreadPool" 
+                  namePrefix="catalina-exec-"
+                  maxThreads="100"
+                  minSpareThreads="25"
+                  maxIdleTime="60000"
+                  prestartminSpareThreads="true"
+                  maxQueueSize="50"/>
+        
+        <!-- HTTP/1.1 Connector optimized for 2 cores, 4GB RAM -->
+        <Connector executor="tomcatThreadPool"
+                   port="8080" 
+                   protocol="org.apache.coyote.http11.Http11NioProtocol"
+                   connectionTimeout="20000"
+                   maxConnections="250"
+                   acceptCount="50"
+                   keepAliveTimeout="30000"
+                   maxKeepAliveRequests="50"
+                   
+                   <!-- Compression for bandwidth optimization -->
+                   compression="on"
+                   compressionMinSize="2048"
+                   compressibleMimeType="text/html,text/xml,text/plain,text/css,text/javascript,application/javascript,application/json"
+                   
+                   <!-- Performance tuning -->
+                   enableLookups="false"
+                   disableUploadTimeout="true"
+                   URIEncoding="UTF-8"
+                   useBodyEncodingForURI="true"
+                   
+                   <!-- Security - reduced limits for smaller server -->
+                   maxParameterCount="1000"
+                   maxPostSize="1048576"
+                   maxHttpHeaderSize="8192"
+                   
+                   redirectPort="8443" />
+        
+        <!-- AJP Connector (disabled to save resources) -->
+        <!-- 
+        <Connector port="8009" 
+                   protocol="AJP/1.3" 
+                   redirectPort="8443"
+                   maxThreads="50"
+                   minSpareThreads="5"
+                   enableLookups="false"
+                   connectionTimeout="20000" />
+        -->
+        
+        <Engine name="Catalina" defaultHost="localhost">
+            
+            <Realm className="org.apache.catalina.realm.LockOutRealm">
+                <Realm className="org.apache.catalina.realm.UserDatabaseRealm" 
+                       resourceName="UserDatabase"/>
+            </Realm>
+            
+            <Host name="localhost" 
+                  appBase="webapps"
+                  unpackWARs="true" 
+                  autoDeploy="true"
+                  deployOnStartup="true">
+                
+                <!-- Access Log with basic pattern -->
+                <Valve className="org.apache.catalina.valves.AccessLogValve" 
+                       directory="logs"
+                       prefix="localhost_access_log" 
+                       suffix=".txt"
+                       pattern="%h %l %u %t &quot;%r&quot; %s %b"
+                       rotatable="true"
+                       maxDays="15" />
+                
+                <!-- Error Report Valve -->
+                <Valve className="org.apache.catalina.valves.ErrorReportValve"
+                       showReport="false"
+                       showServerInfo="false" />
+                
+            </Host>
+        </Engine>
+    </Service>
+</Server>
