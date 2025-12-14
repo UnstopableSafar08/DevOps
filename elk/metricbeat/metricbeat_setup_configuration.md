@@ -96,8 +96,8 @@ processors:
   processors:
     - drop_event.when.regexp:
         system.filesystem.mount_point: '^/(sys|cgroup|proc|dev|etc|host|lib|snap)($|/)'
-    - drop_event.when.equals:
-        system.filesystem.mount_point: "/var"
+   # - drop_event.when.equals:
+   #     system.filesystem.mount_point: "/var"
 
 - module: system
   period: 15m
