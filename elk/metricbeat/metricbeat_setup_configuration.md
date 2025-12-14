@@ -108,7 +108,7 @@ processors:
 # hostfs: "/hostfs"
 # ssl.certificate_authorities: ["/etc/metricbeat/certs/ca_elk.local.crt"]
 ```
-Check the COnfigurations;
+Check the Configurations;
 ```bash
 metricbeat test modules system
 metricbeat test config
