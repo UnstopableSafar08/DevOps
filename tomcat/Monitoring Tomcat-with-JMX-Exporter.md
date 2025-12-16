@@ -183,3 +183,258 @@ INFO: JMX exporter started at port 9104
 ```
 
 That's it! Your Tomcat instance is now ready to be monitored via Prometheus and visualized in Grafana.
+
+
+
+# Visualizing Tomcat Metrics in Grafana
+
+## Step 1: Add Prometheus as Data Source
+
+1. **Login to Grafana** (default: http://localhost:3000)
+   - Default credentials: admin/admin
+
+2. **Add Prometheus Data Source**
+   - Click on the **☰** menu (hamburger menu) → **Connections** → **Data sources**
+   - Click **"Add data source"**
+   - Select **"Prometheus"**
+   - Configure:
+     - **Name**: Prometheus
+     - **URL**: `http://localhost:9090` (or your Prometheus server URL)
+     - Click **"Save & Test"** - you should see "Data source is working"
+
+## Step 2: Import a Pre-built Tomcat Dashboard
+
+The easiest way is to use a community dashboard:
+
+1. **Go to Dashboards**
+   - Click **☰** menu → **Dashboards**
+   - Click **"New"** → **"Import"**
+
+2. **Import Dashboard by ID**
+   - Enter one of these dashboard IDs:
+     - **11401** - Tomcat Dashboard (comprehensive)
+     - **9731** - JVM (Micrometer)
+     - **8563** - JMX Overview
+   
+3. **Configure Import**
+   - Select your **Prometheus** data source
+   - Click **"Import"**
+
+## Step 3: Create a Custom Tomcat Dashboard
+
+If you want to create your own dashboard:
+
+1. **Create New Dashboard**
+   - Click **☰** → **Dashboards** → **New Dashboard**
+   - Click **"Add visualization"**
+   - Select your **Prometheus** data source
+
+2. **Add Key Panels** - Here are essential visualizations:
+
+### Panel 1: Request Rate (Requests per second)
+
+```promql
+rate(tomcat_requestcount_total[5m])
+```
+
+- **Visualization**: Time series graph
+- **Title**: "HTTP Requests per Second"
+- **Unit**: reqps (requests per second)
+
+### Panel 2: Error Rate
+
+```promql
+rate(tomcat_errorcount_total[5m])
+```
+
+- **Visualization**: Time series graph
+- **Title**: "HTTP Errors per Second"
+- **Unit**: errors/sec
+
+### Panel 3: Thread Pool Usage
+
+```promql
+tomcat_threadpool_currentthreadsbusy
+```
+
+```promql
+tomcat_threadpool_maxthreads
+```
+
+- **Visualization**: Time series graph
+- **Title**: "Thread Pool - Busy vs Max"
+- **Legend**: {{protocol}}-{{port}}
+
+### Panel 4: Thread Pool Usage Percentage
+
+```promql
+(tomcat_threadpool_currentthreadsbusy / tomcat_threadpool_maxthreads) * 100
+```
+
+- **Visualization**: Gauge
+- **Title**: "Thread Pool Usage %"
+- **Unit**: percent (0-100)
+- **Thresholds**: Green (0-70), Yellow (70-85), Red (85-100)
+
+### Panel 5: JVM Heap Memory Usage
+
+```promql
+jvm_memory_heap_used_bytes
+```
+
+```promql
+jvm_memory_heap_max_bytes
+```
+
+- **Visualization**: Time series graph
+- **Title**: "JVM Heap Memory"
+- **Unit**: bytes (IEC)
+
+### Panel 6: JVM Heap Usage Percentage
+
+```promql
+(jvm_memory_heap_used_bytes / jvm_memory_heap_max_bytes) * 100
+```
+
+- **Visualization**: Gauge
+- **Title**: "Heap Memory Usage %"
+- **Unit**: percent (0-100)
+- **Thresholds**: Green (0-75), Yellow (75-90), Red (90-100)
+
+### Panel 7: Garbage Collection Rate
+
+```promql
+rate(jvm_gc_collection_count_total[5m])
+```
+
+- **Visualization**: Time series graph
+- **Title**: "GC Collections per Second"
+- **Legend**: {{gc}}
+
+### Panel 8: GC Time
+
+```promql
+rate(jvm_gc_collection_time_ms_total[5m])
+```
+
+- **Visualization**: Time series graph
+- **Title**: "GC Time (ms/sec)"
+- **Legend**: {{gc}}
+
+### Panel 9: Active Sessions
+
+```promql
+tomcat_sessions_active_current_sessions
+```
+
+- **Visualization**: Stat
+- **Title**: "Active Sessions"
+
+### Panel 10: Response Time (if available)
+
+```promql
+rate(tomcat_processingtime_total[5m]) / rate(tomcat_requestcount_total[5m])
+```
+
+- **Visualization**: Time series graph
+- **Title**: "Average Response Time (ms)"
+- **Unit**: milliseconds
+
+## Step 4: Dashboard Layout Example
+
+Create a dashboard with this structure:
+
+```
+Row 1: Overview
++------------------+------------------+------------------+
+| Requests/sec     | Errors/sec       | Active Sessions  |
+| (Time series)    | (Time series)    | (Stat)          |
++------------------+------------------+------------------+
+
+Row 2: Thread Pool
++------------------+------------------+
+| Thread Pool Usage (Time series)    |
++------------------+------------------+
+| Thread Pool % (Gauge)              |
++------------------------------------+
+
+Row 3: Memory
++------------------+------------------+
+| Heap Memory (Time series)          |
++------------------+------------------+
+| Heap Usage % (Gauge)               |
++------------------------------------+
+
+Row 4: Garbage Collection
++------------------+------------------+
+| GC Rate          | GC Time          |
+| (Time series)    | (Time series)    |
++------------------+------------------+
+```
+
+## Step 5: Configure Dashboard Settings
+
+1. **Set Time Range**
+   - Top right corner → Select "Last 1 hour" or "Last 6 hours"
+   - Enable auto-refresh: 30s or 1m
+
+2. **Add Variables (Optional)**
+   - Dashboard settings (gear icon) → **Variables** → **Add variable**
+   - **Name**: `instance`
+   - **Type**: Query
+   - **Query**: `label_values(tomcat_requestcount_total, instance)`
+   - Use in queries: `{instance="$instance"}`
+
+3. **Save Dashboard**
+   - Click **Save** icon (top right)
+   - Give it a name: "Tomcat Monitoring"
+   - Add tags: tomcat, jmx, monitoring
+
+## Step 6: Set Up Alerts (Optional)
+
+Create alerts for critical metrics:
+
+### Alert 1: High Thread Pool Usage
+
+1. Edit the "Thread Pool Usage %" panel
+2. Click **Alert** tab
+3. Create alert rule:
+   - **Condition**: `WHEN max() OF query(A, 5m, now) IS ABOVE 85`
+   - **Alert name**: High Thread Pool Usage
+   - **For**: 5m
+   - **Annotations**: Thread pool usage is above 85% for 5 minutes
+
+### Alert 2: High Heap Memory Usage
+
+1. Edit the "Heap Memory Usage %" panel
+2. Create alert:
+   - **Condition**: `WHEN max() OF query(A, 5m, now) IS ABOVE 90`
+   - **Alert name**: High Heap Memory Usage
+   - **For**: 5m
+
+### Alert 3: High Error Rate
+
+1. Create alert for errors:
+   - **Condition**: `WHEN avg() OF query(rate(tomcat_errorcount_total[5m])) IS ABOVE 10`
+   - **Alert name**: High Error Rate
+   - **For**: 2m
+
+## Quick Import Dashboard JSON
+
+Alternatively, here's a complete dashboard JSON you can import:
+
+1. Go to **Dashboards** → **New** → **Import**
+2. Click **"Upload JSON file"** or paste JSON
+3. Select Prometheus data source
+4. Click **Import**
+
+You can save this as a file and import it directly into Grafana for a ready-to-use Tomcat monitoring dashboard.
+
+## Verification
+
+After setup, you should see:
+- ✅ Real-time request rates and errors
+- ✅ Thread pool utilization
+- ✅ JVM memory usage
+- ✅ Garbage collection activity
+- ✅ Active sessions
