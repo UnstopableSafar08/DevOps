@@ -102,5 +102,3 @@ Choose OpenSearch if you:
 * Want **full control over deployment and data**
 
 ---
-
-Just say the word.
