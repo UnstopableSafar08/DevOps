@@ -253,10 +253,11 @@ apiVersion: v1
 data:
   policy.default: role:none
   policy.csv: |
-    # QA user - read-only, but can sync applications
-    p, role:qa, applications, get, *, allow       # view applications
-    p, role:qa, applications, sync, *, allow      # sync applications
-    p, role:qa, projects, get, *, allow           # view projects
+    # QA user - read-only, but can sync applications (my-app)
+    p, role:qa, applications, get, */my-app, allow       # view my-app
+    p, role:qa, applications, list, */my-app, allow      # list my-app
+    p, role:qa, applications, sync, */my-app, allow      # sync my-app
+    p, role:qa, projects, get, *, allow                        # view projects (needed for UI)
     g, qa_user, role:qa                            # assign role to qa_user
 
     # Maintainer role - full control over apps, projects, repos, appsets
@@ -434,3 +435,4 @@ By carefully defining roles, binding users to those roles, and using ArgoCD’s 
 ## References
 - <a href="https://argo-cd.readthedocs.io/en/stable/operator-manual/user-management/" target="_blank">Official Documentaion of ArgoCD</a>
 - <a href="https://medium.com/@mohitbishesh7/create-users-in-argocd-and-assigning-rbac-role-based-access-control-45721183a360" target="_blank">Create ArgoCD Users & Assigning RBAC: Role Based Access Control over AWS EKS Cluster.</a>
+
