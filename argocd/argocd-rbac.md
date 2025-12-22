@@ -23,11 +23,11 @@ First, we'll create user accounts in ArgoCD by patching the `argocd-cm` ConfigMa
 kubectl patch cm argocd-cm -n argocd --type merge -p '
 {"data":{
   "admin.enabled":"true",
-  "accounts.shishir":"login",
+  "accounts.john":"login",
   "accounts.sagar":"login",
-  "accounts.aditya":"login",
-  "accounts.riyaz":"login",
-  "accounts.shushant":"login"
+  "accounts.ram":"login",
+  "accounts.shyam":"login",
+  "accounts.gita":"login"
 }}'
 ```
 
@@ -54,11 +54,11 @@ argocd login localhost:30080 --username admin --password 'Adm!n@123' --insecure
 
 **Set passwords for each user:**
 ```bash
-# Set password for Shishir
+# Set password for john
 argocd account update-password \
-  --account shishir \
+  --account john \
   --current-password 'Adm!n@123' \
-  --new-password 'Shishir@123#'
+  --new-password 'john@123#'
 
 # Set password for Sagar
 argocd account update-password \
@@ -66,23 +66,23 @@ argocd account update-password \
   --current-password 'Adm!n@123' \
   --new-password 'Sagar@123#'
 
-# Set password for Aditya
+# Set password for ram
 argocd account update-password \
-  --account aditya \
+  --account ram \
   --current-password 'Adm!n@123' \
-  --new-password 'Aditya@123#'
+  --new-password 'ram@123#'
 
-# Set password for Riyaz
+# Set password for shyam
 argocd account update-password \
-  --account riyaz \
+  --account shyam \
   --current-password 'Adm!n@123' \
-  --new-password 'Riyaz@123#'
+  --new-password 'shyam@123#'
 
-# Set password for Shushant
+# Set password for Gita
 argocd account update-password \
-  --account shushant \
+  --account Gita \
   --current-password 'Adm!n@123' \
-  --new-password 'Shushant@123#'
+  --new-password 'Gita@123#'
 ```
 
 **What this does:**
@@ -120,8 +120,8 @@ data:
     p, role:qa, repositories, get, *, allow
     p, role:qa, clusters, get, *, allow
     
-    # Assign Shishir to QA role
-    g, shishir, role:qa
+    # Assign john to QA role
+    g, john, role:qa
 
     # Maintainer Role - Full control over applications, projects, repos, and appsets
     # Permissions: all actions (*) on all resources
@@ -132,9 +132,9 @@ data:
     
     # Assign users to Maintainer role
     g, sagar, role:maintainer
-    g, aditya, role:maintainer
-    g, riyaz, role:maintainer
-    g, shushant, role:maintainer
+    g, ram, role:maintainer
+    g, shyam, role:maintainer
+    g, Gita, role:maintainer
 ```
 
 **Apply the RBAC configuration:**
@@ -165,8 +165,8 @@ kubectl get cm argocd-rbac-cm -n argocd -o yaml
 **Test user access:**
 
 ```bash
-# Login as QA user (Shishir)
-argocd login localhost:30080 --username shishir --password 'Shishir@123#' --insecure
+# Login as QA user (john)
+argocd login localhost:30080 --username john --password 'john@123#' --insecure
 
 # Try to list applications (should only see rc-sand-box)
 argocd app list
@@ -295,8 +295,8 @@ You now have:
 - ✅ 5 user accounts created in ArgoCD
 - ✅ Passwords set for all users
 - ✅ RBAC policies configured with two roles:
-  - **QA role** (Shishir): Limited to rc-sand-box application
-  - **Maintainer role** (Sagar, Aditya, Riyaz, Shushant): Full access to all resources
+  - **QA role** (john): Limited to rc-sand-box application
+  - **Maintainer role** (Sagar, ram, shyam, Gita): Full access to all resources
 - ✅ Users can login and access resources according to their roles
 
 Each user can now login to ArgoCD UI or CLI with their credentials and will see only the resources they have permission to access.
