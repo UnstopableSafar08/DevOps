@@ -1,438 +1,569 @@
-# ArgoCD Local User & RBAC Implementation  
-ArgoCD is a GitOps-based, declarative continuous delivery platform for Kubernetes. Creating multiple users within ArgoCD improves security, governance, and team collaboration by enforcing Role-Based Access Control (RBAC) and the principle of least privilege.
+# ArgoCD Installation and Configuration Guide
 
-Key advantages of using multiple users with RBAC:
-- Granular Access Control: Assign specific permissions to users based on their responsibilities, ensuring precise control over resources.
-- Enhanced Security: Restricts users to only the resources and actions they require, reducing the potential for accidental or malicious changes.
-- Auditable Activity: Every user action is logged, providing traceability for compliance, debugging, and incident investigation.
-- Environment Isolation: Teams or projects can work in segregated environments, preventing changes in one area from affecting others.
-- Streamlined Collaboration: Users can contribute to deployments independently while adhering to access policies, improving team efficiency.
+This comprehensive guide covers installing ArgoCD on Kubernetes with NodePort access, custom admin password setup, node placement configuration, and troubleshooting.
 
-Prerequisites:
-* An existing K8S cluster.
-* ArgoCD installed and running.
-* Admin credentials for ArgoCD to configure users and roles.
-
-By creating users and assigning roles, organizations can securely manage application access and maintain operational compliance in their GitOps workflows.
-
----
-Step-by-step guide to enable ArgoCD admin access, create local users (`qa_user`, `devops_user`), assign roles and permissions, reset passwords, and automate configuration using `kubectl patch`. Includes a deep dive into RBAC syntax for policy rules.
+## Table of Contents
+1. [Prerequisites](#prerequisites)
+2. [Method 1: Basic Installation](#method-1-basic-installation)
+3. [Method 2: Installation with Node Placement](#method-2-installation-with-node-placement)
+4. [Custom Admin Password Setup](#custom-admin-password-setup)
+5. [Troubleshooting](#troubleshooting)
+6. [Verification and Access](#verification-and-access)
 
 ---
 
-> [!IMPORTANT]
-> Remember to make a backup of the default argocd configmap in case you need to rollback.
-```bash
-# Backup argocd-cm
-kubectl get cm argocd-cm -n argocd -o yaml > argocd-cm-backup.yaml
-# Backup argocd-rbac-cm
-kubectl get cm argocd-rbac-cm -n argocd -o yaml > argocd-rbac-cm-backup.yaml
-```
+## Prerequisites
 
----
-## 1. Enable Admin User and Add Local Accounts
-
-By default, ArgoCD may have the `admin` account disabled.  
-You can enable it and add new local users in **two ways**:
-
-### Option A — Manual Edit
-
-```bash
-kubectl edit configmap argocd-cm -n argocd
-```
-
-Add or modify the `data:` section:
-
-```yaml
-kind: ConfigMap
-data:
-  admin.enabled: "true"
-  accounts.admin: login, apiKey
-  accounts.qa_user: login, apiKey
-  accounts.devops_user: login, apiKey
-```
-
-Then restart deployments:
-
-```bash
-kubectl rollout restart deployment argocd-server -n argocd
-```
-
-### Option B — Using `kubectl patch` (Automated, safer in CI/CD)
-
-```bash
-kubectl patch cm argocd-cm -n argocd --type merge -p '
-{"data":{
-  "admin.enabled":"true",
-  "accounts.qa_user":"login,apiKey",
-  "accounts.devops_user":"login,apiKey"
-}}'
-```
-
-This adds `qa_user` and `devops_user` accounts with **login + API key** capability  
-(API key allows CLI authentication and integration pipelines).
-
-*Note : update the user(s)' name and roles accordingly.*
+Before starting, ensure you have:
+- A running Kubernetes cluster
+- `kubectl` configured with cluster access
+- Cluster admin privileges
+- (Optional) `httpd-tools` package for custom password generation
 
 ---
 
-## 2. Reset Passwords for New Accounts
+## Method 1: Basic Installation
 
-Get Argo CD Admin Password, The Argo CD auto-generates the admin password as a secret.
+This method installs ArgoCD with basic configuration and NodePort access.
+
+### Step 1: Create ArgoCD Namespace
+
 ```bash
-kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath="{.data.password}" | base64 -d; echo
+kubectl create namespace argocd
 ```
 
-After creating the accounts, use the **admin** account to set passwords:
+**What this does:** Creates a dedicated namespace to isolate ArgoCD components from other workloads.
 
-#### Install the argocd cli tool.
+### Step 2: Install ArgoCD Core Components
+
 ```bash
-# Install argocdcli on master server or remote server.
-curl -sSL -o /usr/local/bin/argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
-chmod +x /usr/local/bin/argocd
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+```
+
+**What this does:** 
+- Installs all ArgoCD components (API server, repo server, application controller, etc.)
+- Creates necessary ConfigMaps, Secrets, and Services
+- Deploys ArgoCD with default configuration
+
+**Wait for pods to be ready:**
+```bash
+kubectl get pods -n argocd -o wide
+```
+
+Wait until all pods show `Running` status with `1/1` or `2/2` ready containers.
+
+### Step 3: Expose ArgoCD Server via NodePort
+
+```bash
+kubectl patch svc argocd-server -n argocd -p '{"spec": {"type": "NodePort", "ports": [{"port": 80, "targetPort": 8080, "nodePort": 30080, "protocol": "TCP", "name": "http"}]}}'
+```
+
+**What this does:**
+- Changes service type from `ClusterIP` to `NodePort`
+- Exposes ArgoCD on port `30080` on all cluster nodes
+- Allows external access without LoadBalancer or Ingress
+
+**Verify the service:**
+```bash
+kubectl get svc argocd-server -n argocd
+```
+
+You should see:
+```
+NAME            TYPE       CLUSTER-IP      EXTERNAL-IP   PORT(S)        AGE
+argocd-server   NodePort   10.96.123.456   <none>        80:30080/TCP   2m
+```
+
+### Step 4: Enable Insecure Access (HTTP)
+
+```bash
+kubectl patch configmap argocd-cm -n argocd --type merge -p '{"data": {"server.insecure": "true"}}'
+```
+
+**What this does:**
+- Disables TLS/HTTPS requirement
+- Allows HTTP access (useful for internal networks)
+- **Security Note:** Only use in trusted networks. For production, use proper TLS certificates.
+
+### Step 5: Restart ArgoCD Server
+
+```bash
+kubectl delete pod -l app.kubernetes.io/name=argocd-server -n argocd
+```
+
+**What this does:**
+- Deletes the ArgoCD server pod
+- Kubernetes automatically recreates it with new configuration
+- New pod picks up the insecure mode setting
+
+**Wait for the new pod to be ready:**
+```bash
+kubectl get pods -n argocd -l app.kubernetes.io/name=argocd-server
+```
+
+### Step 6: Retrieve Initial Admin Password
+
+```bash
+kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath="{.data.password}" | base64 -d && echo
+```
+
+**What this does:**
+- Extracts the auto-generated admin password from Kubernetes secret
+- Decodes the base64-encoded password
+- Displays it in your terminal
+
+**Example output:**
+```
+aBcD1234XyZ789
+```
+
+**Save this password!** You'll need it to login as admin.
+
+---
+
+## Method 2: Installation with Node Placement
+
+This method pins ArgoCD pods to specific worker nodes for better resource management and isolation.
+
+### Step 1-5: Follow Basic Installation
+
+Complete Steps 1-5 from Method 1 above.
+
+### Step 6: Label Worker Nodes (Optional)
+
+If you want to label multiple nodes for identification:
+
+```bash
+kubectl label node sagar-dr-k8s-worker-01.sagar.com.np node-role.kubernetes.io/worker=worker
+kubectl label node sagar-dr-k8s-worker-02.sagar.com.np node-role.kubernetes.io/worker=worker
+kubectl label node sagar-dr-k8s-worker-03.sagar.com.np node-role.kubernetes.io/worker=worker
+kubectl label node sagar-dr-k8s-worker-04.sagar.com.np node-role.kubernetes.io/worker=worker
+kubectl label node sagar-dr-k8s-worker-05.sagar.com.np node-role.kubernetes.io/worker=worker
+kubectl label node sagar-dr-k8s-worker-06.sagar.com.np node-role.kubernetes.io/worker=worker
+```
+
+**What this does:** Adds a visual label `worker` to worker nodes (cosmetic, helps with `kubectl get nodes`).
+
+### Step 7: Label Target Node for ArgoCD
+
+```bash
+kubectl label node sagar-dr-k8s-worker-01.sagar.com.np argocd-node=primary --overwrite
+```
+
+**What this does:**
+- Adds a custom label `argocd-node=primary` to a specific node
+- This label will be used to pin ArgoCD pods to this node
+- Use `--overwrite` to update if label already exists
+
+**Replace** `sagar-dr-k8s-worker-01.sagar.com.np` with your actual node name.
+
+**Get your node names:**
+```bash
+kubectl get nodes
+```
+
+### Step 8: Pin ArgoCD Pods to the Labeled Node
+
+```bash
+for kind in deployment statefulset; do
+  for name in $(kubectl get $kind -n argocd -o jsonpath='{.items[*].metadata.name}'); do
+    kubectl patch $kind $name -n argocd \
+      -p '{"spec": {"template": {"spec": {"nodeSelector": {"argocd-node": "primary"}}}}}'
+  done
+done
+```
+
+**What this does:**
+- Loops through all Deployments and StatefulSets in the argocd namespace
+- Adds a `nodeSelector` to each pod template
+- Forces all ArgoCD pods to schedule only on nodes with `argocd-node=primary` label
+
+**Benefits:**
+- Resource isolation
+- Predictable placement
+- Better troubleshooting
+- Prevents ArgoCD pods from competing with critical workloads
+
+### Step 9: Verify Pod Placement
+
+```bash
+kubectl get pods -n argocd -o wide
+```
+
+**Expected output:** All pods should show the same node name in the `NODE` column:
+```
+NAME                                  READY   STATUS    NODE
+argocd-server-xxxxx                   1/1     Running   sagar-dr-k8s-worker-01.sagar.com.np
+argocd-repo-server-xxxxx              1/1     Running   sagar-dr-k8s-worker-01.sagar.com.np
+argocd-application-controller-xxxxx   1/1     Running   sagar-dr-k8s-worker-01.sagar.com.np
+...
+```
+
+### Step 10: Get Initial Admin Password
+
+```bash
+kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath="{.data.password}" | base64 -d && echo
+```
+
+---
+
+## Custom Admin Password Setup
+
+The default admin password is randomly generated. You can set a custom password for better security and memorability.
+
+### Prerequisites
+
+Install `httpd-tools` (for bcrypt password hashing):
+
+**RHEL/CentOS/Rocky Linux:**
+```bash
+dnf install httpd-tools -y
+```
+
+**Debian/Ubuntu:**
+```bash
+apt-get install apache2-utils -y
+```
+
+### Step 1: Generate Bcrypt Hash
+
+```bash
+htpasswd -nbBC 10 "" sagar@123 | tr -d ':\n'
+```
+
+**What this does:**
+- `-n`: Display hash on stdout (don't create file)
+- `-b`: Use password from command line (batch mode)
+- `-B`: Use bcrypt algorithm
+- `-C 10`: Cost factor of 10 (recommended for security)
+- `tr -d ':\n'`: Removes colon and newline from output
+
+**Example output:**
+```
+$2y$10$HAgQxol/owR8P4SzzCcLRuQJSzwJcLAyXPfzp7r//OcddmDIYFofC
+```
+
+**Save this hash!** You'll need it in the next step.
+
+**Replace `sagar@123` with your desired password.**
+
+### Step 2: Patch Admin Password Secret
+
+```bash
+kubectl -n argocd patch secret argocd-secret \
+  -p '{"stringData": {
+    "admin.password": "$2y$10$HAgQxol/owR8P4SzzCcLRuQJSzwJcLAyXPfzp7r//OcddmDIYFofC",
+    "admin.passwordMtime": "'$(date +%FT%T%Z)'"
+  }}'
+```
+
+**What this does:**
+- Updates the `argocd-secret` with your new password hash
+- Sets password modification time to current timestamp
+- ArgoCD uses bcrypt to verify passwords securely
+
+**Important:** Replace the hash with your generated hash from Step 1.
+
+### Step 3: Restart ArgoCD Server
+
+```bash
+kubectl delete pod -l app.kubernetes.io/name=argocd-server -n argocd
+```
+
+**Wait for pod to restart:**
+```bash
+kubectl get pods -n argocd -l app.kubernetes.io/name=argocd-server
+```
+
+### Step 4: Test Login
+
+```bash
+# Login with new password
+argocd login <node-ip>:30080 --username admin --password 'sagar@123' --insecure
+```
+
+Replace `<node-ip>` with any node's IP address in your cluster.
+
+---
+
+## Troubleshooting
+
+### Issue: Pods in CrashLoopBackOff
+
+**Symptoms:**
+- ArgoCD repo-server pod keeps restarting
+- Pod status shows `CrashLoopBackOff` or `Error`
+
+**Common causes:**
+- Insufficient resources (CPU/Memory)
+- Probe timeouts
+- Node resource constraints
+
+**Solution: Adjust Resource Limits and Probes**
+
+```bash
+kubectl patch deployment argocd-repo-server -n argocd -p '
+{
+  "spec": {
+    "template": {
+      "spec": {
+        "containers": [{
+          "name": "argocd-repo-server",
+          "resources": {
+            "requests": {"cpu": "100m", "memory": "256Mi"},
+            "limits": {"cpu": "500m", "memory": "512Mi"}
+          },
+          "livenessProbe": {
+            "httpGet": {"path": "/healthz", "port": 8081},
+            "initialDelaySeconds": 15,
+            "periodSeconds": 10,
+            "timeoutSeconds": 5,
+            "failureThreshold": 10
+          },
+          "readinessProbe": {
+            "httpGet": {"path": "/healthz", "port": 8081},
+            "initialDelaySeconds": 15,
+            "periodSeconds": 10,
+            "timeoutSeconds": 5,
+            "failureThreshold": 10
+          }
+        }]
+      }
+    }
+  }
+}'
+```
+
+**What this does:**
+- **Resource Requests:** Guarantees minimum resources (100m CPU, 256Mi RAM)
+- **Resource Limits:** Caps maximum usage (500m CPU, 512Mi RAM)
+- **Liveness Probe:** Checks if container is alive, restarts if unhealthy
+- **Readiness Probe:** Checks if container can accept traffic
+- **initialDelaySeconds: 15:** Waits 15s before first probe (gives app time to start)
+- **failureThreshold: 10:** Allows 10 failures before taking action (more tolerant)
+
+**Restart the pod:**
+```bash
+kubectl delete pod -l app.kubernetes.io/name=argocd-repo-server -n argocd
+```
+
+**Monitor the pod:**
+```bash
+kubectl get pods -n argocd -w
+kubectl logs -n argocd -l app.kubernetes.io/name=argocd-repo-server
+```
+
+### Other Common Issues
+
+#### Issue: Cannot Access UI
+
+**Check service:**
+```bash
+kubectl get svc argocd-server -n argocd
+```
+
+**Check if NodePort is open:**
+```bash
+# On cluster node
+curl http://localhost:30080
+```
+
+**Check firewall rules:**
+```bash
+# Allow port 30080 on firewall
+firewall-cmd --permanent --add-port=30080/tcp
+firewall-cmd --reload
+```
+
+#### Issue: Pods Not Scheduling on Target Node
+
+**Check node labels:**
+```bash
+kubectl get nodes --show-labels | grep argocd-node
+```
+
+**Check node resources:**
+```bash
+kubectl describe node sagar-dr-k8s-worker-01.sagar.com.np
+```
+
+**Remove nodeSelector if needed:**
+```bash
+kubectl patch deployment <deployment-name> -n argocd --type json \
+  -p='[{"op": "remove", "path": "/spec/template/spec/nodeSelector"}]'
+```
+
+#### Issue: Initial Admin Secret Not Found
+
+**Check if secret exists:**
+```bash
+kubectl get secret argocd-initial-admin-secret -n argocd
+```
+
+**If missing, reset admin password manually:**
+```bash
+# Generate new hash
+htpasswd -nbBC 10 "" YourNewPassword123 | tr -d ':\n'
+
+# Patch secret
+kubectl -n argocd patch secret argocd-secret \
+  -p '{"stringData": {"admin.password": "<your-hash>", "admin.passwordMtime": "'$(date +%FT%T%Z)'"}}'
+
+# Restart server
+kubectl delete pod -l app.kubernetes.io/name=argocd-server -n argocd
+```
+
+---
+
+## Verification and Access
+
+### Access ArgoCD UI
+
+**URL:** `http://<node-ip>:30080`
+
+**Example:**
+- `http://192.168.1.100:30080`
+- `http://worker-01.example.com:30080`
+
+**Login credentials:**
+- **Username:** `admin`
+- **Password:** Initial password or custom password you set
+
+### Install ArgoCD CLI (Optional)
+
+**Linux/Mac:**
+```bash
+curl -sSL -o argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+chmod +x argocd
+sudo mv argocd /usr/local/bin/
+```
+
+**Verify installation:**
+```bash
 argocd version
 ```
 
-We can update or set a user’s password using the Argo CD CLI tool or from inside the Argo CD pod. In both cases, the following commands work fine.
-for e.g.
-```bash
-##### ---- VM/remote server(argocd-cli)---- #####
-[root@k8s-master argocd]# argocd version
-argocd: v3.2.0+66b2f30
-  BuildDate: 2025-11-04T15:21:01Z
-  GitCommit: 66b2f302d91a42cc151808da0eec0846bbe1062c
-  GitTreeState: clean
-  GoVersion: go1.25.0
-  Compiler: gc
-  Platform: linux/amd64
-argocd-server: v3.2.0+66b2f30
-  BuildDate: 2025-11-04T14:51:35Z
-  GitCommit: 66b2f302d91a42cc151808da0eec0846bbe1062c
-  GitTreeState: clean
-  GoVersion: go1.25.0
-  Compiler: gc
-  Platform: linux/amd64
-  Kustomize Version: v5.7.0 2025-06-28T07:00:07Z
-  Helm Version: v3.18.4+gd80839c
-  Kubectl Version: v0.34.0
-  Jsonnet Version: v0.21.0
-[root@k8s-master argocd]#
-
-
-##### ---- inside the pod ---- #####
-[root@k8s-master argocd]# kubectl get pods -n argocd | grep argocd-server
-argocd-server-57d9cc9bcf-rcvjm                      1/1     Running   0             61m
-[root@k8s-master argocd]#
-[root@k8s-master argocd]# kubectl exec -it argocd-server-57d9cc9bcf-rcvjm -n argocd -- /bin/sh
-$
-$ argocd version
-argocd: v3.2.0+66b2f30
-  BuildDate: 2025-11-04T14:51:35Z
-  GitCommit: 66b2f302d91a42cc151808da0eec0846bbe1062c
-  GitTreeState: clean
-  GoVersion: go1.25.0
-  Compiler: gc
-  Platform: linux/amd64
-argocd-server: v3.2.0+66b2f30
-  BuildDate: 2025-11-04T14:51:35Z
-  GitCommit: 66b2f302d91a42cc151808da0eec0846bbe1062c
-  GitTreeState: clean
-  GoVersion: go1.25.0
-  Compiler: gc
-  Platform: linux/amd64
-  Kustomize Version: v5.7.0 2025-06-28T07:00:07Z
-  Helm Version: v3.18.4+gd80839c
-  Kubectl Version: v0.34.0
-  Jsonnet Version: v0.21.0
-```
-
-### Set Password for a newly create user(s).
+### Login via CLI
 
 ```bash
-# Log in as admin
-argocd login <argocd-server-ip>:30080 --username admin --password <admin-password> --insecure
-
-# Now set passwords for new users
-argocd account update-password --account qa_user \
-  --current-password <admin-password> --new-password MyStrongQaPass123
-
-argocd account update-password --account devops_user \
-  --current-password <admin-password> --new-password MyStrongDevOpsPass123
+argocd login <node-ip>:30080 --username admin --password '<your-password>' --insecure
 ```
 
-**Key Points:**
-- Admin can update any local user's password using their own current password (--current-password).
-- Works for `initial setup`, ``updates``, or `resets` (no need to know the user's old password).
-- `--insecure` skips TLS verification (use only if self-signed cert or HTTP).
-- Applies only to local accounts (not SSO/LDAP users).
+### Verify Installation
 
-
-output:
 ```bash
-[root@k8s-master argocd]# kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath="{.data.password}" | base64 -d; echo
-n4vtzIpW4r0ILcYp
-[root@k8s-master argocd]# # Log in as admin
-argocd login 192.168.121.111:30080 --username admin --password 'n4vtzIpW4r0ILcYp' --insecure
-'admin:login' logged in successfully
-Context '192.168.121.111:30080' updated
-[root@k8s-master argocd]#
-[root@k8s-master argocd]# # Now set passwords for new users
-argocd account update-password --account qa_user \
-  --current-password 'n4vtzIpW4r0ILcYp' --new-password MyPass123
-Password updated
-[root@k8s-master argocd]# argocd account update-password --account devops_user \
-  --current-password 'n4vtzIpW4r0ILcYp' --new-password MyPass123
-Password updated
-[root@k8s-master argocd]#
-```
-Here, `192.168.121.111` is my k8s master server ip.
+# Check all ArgoCD components
+kubectl get all -n argocd
 
-<br>
+# Check pods status
+kubectl get pods -n argocd
+
+# Check service
+kubectl get svc argocd-server -n argocd
+
+# Check logs
+kubectl logs -n argocd deployment/argocd-server
+```
+
+### Create Your First Application
+
+**Via UI:**
+1. Login to ArgoCD UI
+2. Click "New App"
+3. Fill in application details
+4. Click "Create"
+
+**Via CLI:**
+```bash
+argocd app create guestbook \
+  --repo https://github.com/argoproj/argocd-example-apps.git \
+  --path guestbook \
+  --dest-server https://kubernetes.default.svc \
+  --dest-namespace default
+```
 
 ---
 
-<br>
+## Post-Installation Recommendations
 
-> [!INFO] 
-#### (Optional) For Your Knowledge.
-### 1. Admin set/update the user's password.
-```bash
-argocd login <argocd-server-ip>:30080 --username admin --password '<admin_password>' --insecure && \
-argocd account update-password --account qa_user --new-password 'MyStrongPass123' --server<argocd-server-ip>:30080 --insecure
-argocd account update-password --account devops_user_user --new-password 'MyStrongPass123' --server<argocd-server-ip>:30080 --insecure
-```
-- Admin sets or resets any user's password
-- Admin login password needed.
-- Admin does NOT need the user's current password
-Output:
-```bash
-[root@k8s-master argocd]# # using admin user set/update the password of user
-[root@k8s-master argocd]# argocd login 192.168.121.111:30080 --username admin --password '<admin_password>' --insecure && \
-argocd account update-password --account qa_user --new-password 'MyStrongPass123' --server 192.168.121.111:30080 --insecure
-'admin:login' logged in successfully
-Context '192.168.121.111:30080' updated
-*** Enter password of currently logged in user (admin):
-Password updated
-[root@k8s-master argocd]#
-``` 
-### 2. User own password update.
-```bash
-argocd login <argocd-server-ip>:30080 --username qa_user --password 'MyStrongQaPass123' --insecure && \
-argocd account update-password --new-password 'MyStrongPass123'
-```
-- User changes their own password
-- User must log in first using current password
-output:
-```bash
-[root@k8s-master argocd]# argocd login 192.168.121.111:30080 --username qa_user --password 'MyStrongQaPass123' --insecure && argocd account update-password --new-password 'MyStrongPass123'
-'qa_user:login' logged in successfully
-Context '192.168.121.111:30080' updated
-*** Enter password of currently logged in user (qa_user): MyStrongQaPass123
-Password updated
-Context '192.168.121.111:30080' updated
-[root@k8s-master argocd]# 
-``` 
+### 1. Delete Initial Admin Secret
 
-
----
-
-## 3. Configure RBAC Policy Rules
-
-You can manage user permissions in the ConfigMap `argocd-rbac-cm`.
-
-### Option A — Manual Edit
+After setting a custom password, remove the initial secret for security:
 
 ```bash
-kubectl edit configmap argocd-rbac-cm -n argocd
+kubectl delete secret argocd-initial-admin-secret -n argocd
 ```
 
-Paste the following under `data:`:
+### 2. Enable RBAC
+
+Configure user accounts and permissions (see separate RBAC guide).
+
+### 3. Setup TLS/HTTPS
+
+For production, configure proper TLS certificates:
+
+```bash
+kubectl create secret tls argocd-server-tls \
+  --cert=/path/to/cert.crt \
+  --key=/path/to/cert.key \
+  -n argocd
+```
+
+### 4. Configure Ingress (Alternative to NodePort)
+
+For production, use Ingress instead of NodePort:
 
 ```yaml
-apiVersion: v1
-data:
-  policy.default: role:none
-  policy.csv: |
-    # QA user - read-only, but can sync applications (my-app)
-    p, role:qa, applications, get, */my-app, allow       # view my-app
-    p, role:qa, applications, list, */my-app, allow      # list my-app
-    p, role:qa, applications, sync, */my-app, allow      # sync my-app
-    p, role:qa, projects, get, *, allow                        # view projects (needed for UI)
-    g, qa_user, role:qa                            # assign role to qa_user
-
-    # Maintainer role - full control over apps, projects, repos, appsets
-    # syntax : policy_type, <role>, <resource>, <object>, <action>, <effect>
-    p, role:maintainer, applications, *, *, allow
-    p, role:maintainer, projects, *, *, allow
-    p, role:maintainer, repositories, *, *, allow
-    p, role:maintainer, applicationsets, *, *, allow
-    g, devops_user, role:maintainer
-
-    # DevOps role (extra: clusters + accounts)
-    # p, role:devops, clusters, *, *, allow
-    # p, role:devops, accounts, *, *, allow
-    # g, devops_user, role:devops
-kind: ConfigMap
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argocd-server-ingress
+  namespace: argocd
+spec:
+  rules:
+  - host: argocd.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: argocd-server
+            port:
+              number: 80
 ```
-> [!NOTE] 
-> The configuration above is merely an example.
 
-### Option B — Using `kubectl patch` (Automated)
+### 5. Setup Monitoring
+
+Monitor ArgoCD with Prometheus and Grafana for production deployments.
+
+### 6. Backup ArgoCD Configuration
+
+Regularly backup ArgoCD ConfigMaps, Secrets, and Applications:
 
 ```bash
-kubectl patch cm argocd-rbac-cm -n argocd --type merge -p '
-{"data":{
-  "policy.default": "role:none",
-  "policy.csv": "# Built-in readonly for qa\ng, qa_user, role:readonly\n\n# Maintainer role (apps, projects, repos, appsets)\np, role:maintainer, applications, *, *, allow\np, role:maintainer, projects, *, *, allow\np, role:maintainer, repositories, *, *, allow\np, role:maintainer, applicationsets, *, *, allow\ng, devops_user, role:maintainer\n\n# DevOps role (extra: clusters + accounts)\np, role:devops, clusters, *, *, allow\np, role:devops, accounts, *, *, allow\ng, devops_user, role:devops\n"
-}}'
-```
-*Note : update the user(s)' name and roles accordingly.*
-
-Then restart RBAC components:
-
-```bash
-kubectl rollout restart deployment argocd-server -n argocd
+kubectl get applications -n argocd -o yaml > argocd-apps-backup.yaml
+kubectl get secrets -n argocd -o yaml > argocd-secrets-backup.yaml
 ```
 
 ---
 
-## 4. RBAC Syntax Explained
+## Summary
 
-ArgoCD uses **Casbin-style** policy rules.  
-Each line defines either a **permission** (`p`) or **group mapping** (`g`).
+You have successfully:
+- ✅ Installed ArgoCD on Kubernetes
+- ✅ Exposed ArgoCD via NodePort on port 30080
+- ✅ Configured insecure (HTTP) access
+- ✅ (Optional) Pinned ArgoCD pods to specific nodes
+- ✅ Set custom admin password
+- ✅ Troubleshot common issues
+- ✅ Verified installation and access
 
-### 4.1 Permission Rules (`p`)
+**Next steps:**
+- Configure RBAC for team members
+- Deploy your first application
+- Setup Git repositories
+- Configure SSO (if needed)
+- Implement backup strategy
 
-**Format:**
-```
-p, <role>, <resource>, <object>, <action>, <effect>
-```
-
-| Field | Description | Example |
-|--------|--------------|----------|
-| `p` | Policy rule type | Always starts with `p` |
-| `<role>` | Logical role name | `role:maintainer` |
-| `<resource>` | ArgoCD resource type (`applications`, `projects`, `repositories`, `clusters`, `accounts`, etc.) | `applications` |
-| `<object>` | Specific object or wildcard (`*`) | `*` for all |
-| `<action>` | Operation (e.g. `get`, `create`, `update`, `delete`, `sync`, `*`) | `*` (all actions) |
-| `<effect>` | Allow or deny | `allow` |
-
-**Example:**
-```text
-p, role:maintainer, applications, *, *, allow
-```
-→ Grants **maintainer** role full control (`*`) over all ArgoCD **applications**.
-
-### 4.2 Group Rules (`g`)
-
-**Format:**
-```
-g, <user>, <role>
-```
-
-| Field | Description | Example |
-|--------|--------------|----------|
-| `g` | Group mapping type | Always starts with `g` |
-| `<user>` | Username or group name | `devops_user` |
-| `<role>` | Role assigned | `role:maintainer` |
-
-**Example:**
-```text
-g, devops_user, role:maintainer
-```
-→ Assigns the **maintainer** role to the user **devops_user**.
-
----
-
-### Combined Example
-
-```text
-p, role:maintainer, applications, *, *, allow
-g, devops_user, role:maintainer
-```
-
-**Meaning:**  
-1. The role `maintainer` has full access to all applications.  
-2. The user `devops_user` inherits that permission set by being bound to `role:maintainer`.
-
----
-
-## 5. Verify Configuration
-
-### List all ArgoCD accounts:
-```bash
-argocd account list
-```
-
-Output:
-
-```bash
-[root@k8s-master argocd]# argocd account list
-NAME         ENABLED  CAPABILITIES
-admin        true     login, login, apiKey
-devops_user  true     login, apiKey
-qa_user      true     login, apiKey
-[root@k8s-master argocd]#
-```
-
-### Test user access:
-```bash
-argocd admin settings rbac can qa_user applications get my-app allow
-argocd admin settings rbac can devops_user clusters create * allow
-```
-
----
-
-## 6. Quick Reference Table
-
-| User | Role | Permissions | Description |
-|------|------|-------------|--------------|
-| **admin** | role:admin | Full access | Superuser account |
-| **qa_user** | role:readonly | View-only | Can view and sync apps only |
-| **devops_user** | role:maintainer + role:devops | Manage all | Full control over apps, projects, clusters |
-
-
-## 7. Remove users from argocd-cm (delete the accounts)
-#### Deletes the qa_user and devops_user accounts from ArgoCD.
-
-```bash
-kubectl patch cm argocd-cm -n argocd --type merge -p '
-{"data":{
-  "accounts.qa_user": null,
-  "accounts.devops_user": null
-}}'
-```
-
-#### Remove roles from argocd-rbac-cm (delete RBAC policies)
-```bash
-kubectl patch cm argocd-rbac-cm -n argocd --type merge -p '
-{"data":{
-  "policy.csv": "\
-# Maintainer and DevOps roles removed\n\
-# QA role removed\n"
-}}'
-```
-This removes all the role assignments for qa_user and devops_user.
-You can keep other roles intact if needed.
-
-
-#### Restarting ArgoCD server to apply changes
-```bash
-kubectl rollout restart deployment -n argocd
-```
-
-## Benefits of This Approach
-- Delegates responsibilities without giving full admin access.
-- Ensures users can only access what they need (least privilege).
-- Reduces risk of accidental or malicious changes to critical resources.
-- Provides clear separation between development (qa_user) and operational (devops_user) responsibilities.
-
-
-## Conclusion:
-By carefully defining roles, binding users to those roles, and using ArgoCD’s RBAC system, teams can safely manage applications, clusters, and user accounts while maintaining strong security practices. This approach is essential for scaling ArgoCD in production environments.
-
-
-## References
-- <a href="https://argo-cd.readthedocs.io/en/stable/operator-manual/user-management/" target="_blank">Official Documentaion of ArgoCD</a>
-- <a href="https://medium.com/@mohitbishesh7/create-users-in-argocd-and-assigning-rbac-role-based-access-control-45721183a360" target="_blank">Create ArgoCD Users & Assigning RBAC: Role Based Access Control over AWS EKS Cluster.</a>
-
+For RBAC configuration, refer to the "ArgoCD RBAC Configuration Guide".
