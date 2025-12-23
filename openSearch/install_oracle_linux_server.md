@@ -302,6 +302,19 @@ MemorySwapMax=0
 - `200%` = 2 cores
 - `400%` = 4 cores
 
+
+**Recommended Settings by Available System Resources**
+
+| System RAM | System CPU | Memory | Max Memory | High JVM Heap | CPU Quota | Use Case           |
+|------------|------------|--------|------------|---------------|-----------|--------------------|
+| 2 GB       | 2 cores    | 1.5 GB | 1.3 GB     | 750 MB        | 100%      | Minimal / Testing  |
+| 4 GB       | 2 cores    | 3 GB   | 2.7 GB     | 1.5 GB        | 200%      | Development        |
+| 8 GB       | 4 cores    | 6 GB   | 5.5 GB     | 3 GB          | 200%      | Small Production   |
+| 16 GB      | 4 cores    | 12 GB  | 11 GB      | 6 GB          | 400%      | Medium Production  |
+| 32 GB      | 8 cores    | 24 GB  | 22 GB      | 12 GB         | 600%      | Large Production   |
+| 64 GB+     | 8+ cores   | 48 GB  | 44 GB      | 24 GB         | 800%      | Enterprise         |
+
+
 **Reload and restart:**
 
 ```bash
