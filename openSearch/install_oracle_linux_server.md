@@ -35,6 +35,18 @@ Before installing OpenSearch, ensure you have:
 
 ## System Requirements
 
+### Hardware Requirements
+
+**Minimum Requirements:**
+- **CPU:** 2 cores
+- **RAM:** 4GB (8GB recommended for production)
+- **Disk:** 10GB free space (SSD recommended)
+
+**Recommended Production Requirements:**
+- **CPU:** 4-8 cores or more
+- **RAM:** 16GB - 64GB
+- **Disk:** 100GB+ SSD storage
+
 ### Required System Configuration
 
 OpenSearch requires specific kernel parameter settings for optimal performance.
@@ -256,6 +268,119 @@ sudo tail -f /var/log/opensearch/opensearch.log
 ---
 
 ## Optional Configuration
+
+### Limit CPU and Memory Usage
+
+OpenSearch can be resource-intensive. You can limit CPU and memory usage using systemd or cgroups.
+
+#### Method 1: Using Systemd Service Limits
+
+Create a systemd override file:
+
+```bash
+sudo systemctl edit opensearch
+```
+
+Add the following content:
+
+```ini
+[Service]
+# Limit CPU usage to 50% (0.5 cores)
+CPUQuota=50%
+
+# Limit memory to 4GB
+MemoryMax=4G
+MemoryHigh=3.5G
+
+# Set memory swap limit
+MemorySwapMax=0
+```
+
+**CPUQuota Examples:**
+- `50%` = 0.5 cores
+- `100%` = 1 core
+- `200%` = 2 cores
+- `400%` = 4 cores
+
+**Reload and restart:**
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart opensearch
+```
+
+**Verify limits:**
+
+```bash
+sudo systemctl show opensearch | grep -E "CPUQuota|Memory"
+```
+
+#### Method 2: Using Cgroups v2 Directly
+
+Create a cgroup configuration file:
+
+```bash
+sudo vi /etc/systemd/system/opensearch.service.d/limits.conf
+```
+
+Add:
+
+```ini
+[Service]
+CPUAccounting=true
+MemoryAccounting=true
+CPUQuota=200%
+MemoryLimit=8G
+```
+
+Then reload:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart opensearch
+```
+
+#### Method 3: Using ulimits for Process Limits
+
+Edit the systemd service file:
+
+```bash
+sudo systemctl edit --full opensearch
+```
+
+Add under `[Service]` section:
+
+```ini
+# Limit virtual memory
+LimitAS=8G
+
+# Limit number of processes
+LimitNPROC=4096
+
+# Limit number of open files
+LimitNOFILE=65535
+
+# Limit CPU time (seconds)
+LimitCPU=infinity
+```
+
+### Monitor Resource Usage
+
+Check current resource usage:
+
+```bash
+# CPU and Memory usage
+sudo systemctl status opensearch
+
+# Detailed resource usage
+sudo systemd-cgtop
+
+# OpenSearch process stats
+ps aux | grep opensearch
+
+# Memory usage
+sudo cat /proc/$(pgrep -f opensearch)/status | grep -E "VmRSS|VmSize"
+```
 
 ### Configure OpenSearch Settings
 
