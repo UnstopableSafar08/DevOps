@@ -43,6 +43,22 @@ sudo systemctl enable <beat>
 curl -X GET https://localhost:9200/_cat/indices -u admin:openSearch@123# -k
 ```
 
+# Uninstall the beats
+Get the beats rpm lists
+```bash
+sudo rpm -qa | grep -i beat
+
+# output
+filebeat-7.12.1-1.x86_64
+metricbeat-7.12.1-1.x86_64
+heartbeat-elastic-7.12.1-1.x86_64
+```
+Remove the rpms.
+```bash
+sudo rpm -e filebeat-7.12.1-1.x86_64
+sudo rpm -e metricbeat-7.12.1-1.x86_64
+sudo rpm -e heartbeat-elastic-7.12.1-1.x86_64
+```
 ## Troubleshooting
 - Check logs: `/var/log/<beat>/<beat>.log`.
 - SSL issues: Verify config.
