@@ -110,20 +110,20 @@ sudo rpm --import https://artifacts.opensearch.org/publickeys/opensearch-release
 
 **For x64 systems:**
 ```bash
-sudo env OPENSEARCH_INITIAL_ADMIN_PASSWORD='YourStrongPassword123!' rpm -ivh opensearch-3.4.0-linux-x64.rpm
+sudo env OPENSEARCH_INITIAL_ADMIN_PASSWORD='openSearch@123#' rpm -ivh opensearch-3.4.0-linux-x64.rpm
 ```
 
 **Alternative using yum:**
 ```bash
-sudo env OPENSEARCH_INITIAL_ADMIN_PASSWORD='YourStrongPassword123!' yum install -y opensearch-3.4.0-linux-x64.rpm
+sudo env OPENSEARCH_INITIAL_ADMIN_PASSWORD='openSearch@123#' yum install -y opensearch-3.4.0-linux-x64.rpm
 ```
 
 **For ARM64 systems:**
 ```bash
-sudo env OPENSEARCH_INITIAL_ADMIN_PASSWORD='YourStrongPassword123!' rpm -ivh opensearch-3.4.0-linux-arm64.rpm
+sudo env OPENSEARCH_INITIAL_ADMIN_PASSWORD='openSearch@123#' rpm -ivh opensearch-3.4.0-linux-arm64.rpm
 ```
 
-Replace `YourStrongPassword123!` with your actual strong password.
+Replace `openSearch@123#` with your actual strong password.
 
 ---
 
@@ -169,7 +169,7 @@ sudo yum makecache
 #### Step 5: Install OpenSearch
 
 ```bash
-sudo env OPENSEARCH_INITIAL_ADMIN_PASSWORD='YourStrongPassword123!' yum install -y opensearch-3.4.0
+sudo env OPENSEARCH_INITIAL_ADMIN_PASSWORD='openSearch@123#' yum install -y opensearch-3.4.0
 ```
 
 #### Step 6: Verify GPG Key During Installation
@@ -221,7 +221,7 @@ Expected output should show the service as "active (running)".
 Wait approximately 60 seconds for OpenSearch to fully initialize, then test the installation:
 
 ```bash
-curl -X GET https://localhost:9200 -u admin:YourStrongPassword123! -k
+curl -X GET https://localhost:9200 -u admin:openSearch@123# -k
 ```
 
 **Expected Response:**
