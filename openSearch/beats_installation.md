@@ -5,6 +5,17 @@
 - Credentials: admin / openSearch@123#.
 - HTTPS with self-signed cert (use -k for curl).
 
+
+## OpenSearch 3.4.0 — Beats Compatibility Matrix
+
+| Beats Distribution       | Version | Compatibility with OpenSearch 3.4.0 | Notes                                                  |
+|--------------------------|---------|--------------------------------------|--------------------------------------------------------|
+| Elastic Beats             | 7.10.2  | ✅ Fully Compatible                   | Last Apache 2.0 release; industry-standard choice       |
+| OpenSearch Project Beats  | ❌      | ❌ Not Available                      | OpenSearch does not ship native Beats                   |
+| Elastic Beats             | 7.11+   | ⚠️ Partially / Not Recommended        | Licensing + API incompatibilities                      |
+| Elastic Beats             | 8.x     | ❌ Not Compatible                     | Requires Elasticsearch 8.x APIs                        |
+
+
 ## Step 1: Download OSS Beats RPMs (Version 8.15.2)
 ```
 wget https://artifacts.elastic.co/downloads/beats/filebeat/filebeat-oss-8.15.2-x86_64.rpm
