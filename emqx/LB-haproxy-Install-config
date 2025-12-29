@@ -1,0 +1,83 @@
+# HAProxy installation
+sudo yum install -y haproxy
+sudo systemctl enable haproxy
+sudo systemctl start haproxy
+sudo systemctl status haproxy
+sudo firewall-cmd --permanent --add-port=80/tcp
+sudo firewall-cmd --permanent --add-port=443/tcp
+sudo firewall-cmd --reload
+
+# make a backup of the haproxy.cfg file 
+cd /etc/haproxy/
+cp haproxy.cfg haproxy.cfg_backup
+
+# Create a new haproxy.cfg file and copy paste the following lines of codes
+vi haproxy.cfg
+
+# -------------------- Haproxy config Start from here --------------------
+global
+  log 127.0.0.1 local3 info
+  daemon
+  maxconn 102400
+
+defaults
+  log global
+  mode tcp
+  option tcplog
+  #option dontlognull
+  timeout connect 10000
+  # timeout > mqtt's keepalive * 1.2
+  timeout client 240s
+  timeout server 240s
+  maxconn 100000
+
+# -------------------- Loadtest Websocket --------------------
+frontend mqtt
+  bind *:18831
+  mode tcp
+  tcp-request inspect-delay 10s
+  tcp-request content reject unless { req.payload(0,0),mqtt_is_valid }
+  default_backend mqtt
+
+backend mqtt
+  mode tcp
+  stick-table type string len 32 size 1000k expire 30m
+  stick on req.payload(0,0),mqtt_field_value(connect,client_identifier)
+
+  server emqx1 10.13.194.68:1883 check
+  server emqx2 10.13.194.69:1883 check
+  server emqx3 10.13.194.70:1883 check
+
+# -------------------- Dashboaed --------------------
+frontend frontend_emqx_dashboard
+    bind *:18084
+    option tcplog
+    mode tcp
+    default_backend backend_emqx_dashboard
+
+backend backend_emqx_dashboard
+    mode tcp
+    balance roundrobin
+    server emqx1 10.13.194.68:18083 check
+    server emqx2 10.13.194.69:18083 check
+    server emqx3 10.13.194.70:18083 check
+
+# -------------------- Haproxy stats --------------------
+frontend stats
+  mode http
+  bind *:8888
+  stats enable
+  stats uri /stats
+  stats refresh 3s
+  stats hide-version
+  stats realm Haproxy\ Statistics
+# -------------------- Haproxy config end here --------------------
+
+# Configuration check and restart
+haproxy -c -f /etc/haproxy/haproxy.cfg or haproxy -c -f haproxy.cfg  # according to your Working directory
+systemctl restart haproxy
+
+# If all ok, then go to web browser and 
+# visit http://haproxy_server_ip:8888/stats
+# this is open the HAProxy Status page
+
