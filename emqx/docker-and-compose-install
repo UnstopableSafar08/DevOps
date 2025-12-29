@@ -1,0 +1,151 @@
+# ------------------------------ Docker installation ----------------------------
+sudo yum install -y yum-utils
+sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+sudo yum -y install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+sudo usermod -aG docker $(whoami)
+sudo systemctl start docker
+sudo systemctl enable --now docker
+newgrp docker
+
+# ------------------------------- Docker Compose --------------------------------------------
+sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" \
+     -o /usr/local/bin/docker-compose
+sudo chmod +x /usr/local/bin/docker-compose
+docker-compose --version
+
+# Docker Image Pull
+docker pull emqx/emqx:5.5.1
+
+# Creating a volume 
+mkdir -p /opt/emqx/data /opt/emqx/log
+
+cd /opt/emqx/
+
+# Give a permission to the folder, docker can create a conf files on it
+chmod -R 777 /opt/emqx/
+
+# run a docker container of emqx
+docker run -d --name emqx \
+  -p 1883:1883 -p 8083:8083 \
+  -p 8084:8084 -p 8883:8883 \
+  -p 18083:18083 \
+  -v $PWD/data:/opt/emqx/data \
+  -v $PWD/log:/opt/emqx/log \
+  emqx/emqx:5.5.1
+
+
+docker ps -a
+
+
+# ------------------------------ Cluster creating - Manually ---------------------------------------------------------------------
+official Cluster creation Link : https://www.emqx.io/docs/en/latest/deploy/cluster/create-cluster.html#manual-clustering-example
+
+#docker network create for cluster
+docker network create emqx-net 
+
+
+# Docker container 1 : Master node
+docker run -d \
+    --name emqx1 \
+    -e "EMQX_NODE_NAME=emqx@node1.emqx.com" \
+    --network emqx-bridge \
+    --network-alias node1.emqx.com \
+    -p 1883:1883 \
+    -p 8083:8083 \
+    -p 8084:8084 \
+    -p 8883:8883 \
+    -p 18083:18083 \
+    emqx/emqx:5.5.1
+
+# Docker container 2 : slave node1
+docker run -d \
+    --name emqx2 \
+    -e "EMQX_NODE_NAME=emqx@node2.emqx.com" \
+    --network emqx-net \
+    --network-alias node2.emqx.com \
+    emqx/emqx:5.5.1
+
+# Docker container 2 : join a Master Node, second command is run inside the container  
+docker exec -it emqx2 \
+    emqx ctl cluster join emqx@node1.emqx.com
+
+
+# ------------------------------- Docker Compose ------------------------------------------
+
+vi docker-compose.yml
+# - - - compose file start from here
+version: '3'
+
+services:
+  emqx1:
+    image: emqx:5.5.1
+    container_name: emqx1
+    environment:
+    - "EMQX_NODE_NAME=emqx@node1.emqx.io"
+    - "EMQX_CLUSTER__DISCOVERY_STRATEGY=static"
+    - "EMQX_CLUSTER__STATIC__SEEDS=[emqx@node1.emqx.io,emqx@node2.emqx.io]"
+    healthcheck:
+      test: ["CMD", "/opt/emqx/bin/emqx", "ctl", "status"]
+      interval: 5s
+      timeout: 25s
+      retries: 5
+    networks:
+      emqx-bridge:
+        aliases:
+        - node1.emqx.io
+    ports:
+      - 1883:1883
+      - 8083:8083
+      - 8084:8084
+      - 8883:8883
+      - 18083:18083 
+    volumes:
+      - $PWD/emqx1_data:/opt/emqx/data
+
+  emqx2:
+    image: emqx:5.5.1
+    container_name: emqx2
+    environment:
+    - "EMQX_NODE_NAME=emqx@node2.emqx.io"
+    - "EMQX_CLUSTER__DISCOVERY_STRATEGY=static"
+    - "EMQX_CLUSTER__STATIC__SEEDS=[emqx@node1.emqx.io,emqx@node2.emqx.io]"
+    healthcheck:
+      test: ["CMD", "/opt/emqx/bin/emqx", "ctl", "status"]
+      interval: 5s
+      timeout: 25s
+      retries: 5
+    networks:
+      emqx-bridge:
+        aliases:
+        - node2.emqx.io
+    volumes:
+      - $PWD/emqx2_data:/opt/emqx/data
+
+  emqx3:
+    image: emqx:5.5.1
+    container_name: emqx3
+    environment:
+    - "EMQX_NODE_NAME=emqx@node3.emqx.io"
+    - "EMQX_CLUSTER__DISCOVERY_STRATEGY=static"
+    - "EMQX_CLUSTER__STATIC__SEEDS=[emqx@node1.emqx.io,emqx@node2.emqx.io,emqx@node3.emqx.io]"
+    healthcheck:
+      test: ["CMD", "/opt/emqx/bin/emqx", "ctl", "status"]
+      interval: 5s
+      timeout: 25s
+      retries: 5
+    networks:
+      emqx-bridge:
+        aliases:
+        - node3.emqx.io
+    volumes:
+      - $PWD/emqx3_data:/opt/emqx/data
+
+networks:
+  emqx-bridge:
+    driver: bridge
+# - - - compose file end here
+
+# ---- Run Command ----
+# docker-compose up -d
+# docker exec -it emqx1 sh -c "emqx ctl cluster status"

@@ -1,0 +1,430 @@
+# ------------------------------ Single Node setup  (CentOS7 and RHEL8/9)---------------------------------------------------------------------
+official Binary setup : https://www.emqx.io/docs/en/latest/deploy/install-rhel.html
+
+curl -s https://assets.emqx.com/scripts/install-emqx-rpm.sh | sudo bash
+sudo yum install emqx -y
+sudo systemctl start emqx
+
+# ------------------------------ Cluster node setup ---------------------------------------------------------------------
+link : https://www.emqx.io/docs/en/latest/deploy/cluster/create-cluster.html
+
+node naming : emqx@IP_Address or emqx@domainName
+emqx@192.168.121.141
+emqx@192.168.121.142
+emqx@192.168.121.143
+
+hostname : node1.emqx.com
+hostname : node2.emqx.com
+hostname : node3.emqx.com
+
+# ------------------------------ Install with rpm (recommended Method)------------------------------------------------
+official link : https://www.emqx.io/downloads?os=CentOS
+Read More : https://computingforgeeks.com/install-emqx-mqtt-broker-on-rocky-almalinux/
+
+# basic configurations
+systemctl stop firewalld
+systemctl disable firewalld
+vi /etc/selinux/config
+
+sudo subscription-manager register --username='red_sagar' --password='*****************'
+subscription-manager repos --enable codeready-builder-for-rhel-9-$(arch)-rpms
+dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
+dnf update -y
+yum install -y telnet curl wget net-tools
+sudo yum install -y epel-release
+yum clean all -y
+reboot
+
+# check changed basic config 
+systemctl status firewalld
+sestatus
+sudo modprobe ip_tables sudo echo 'ip_tables' >> /etc/modules
+
+# Inatallation by YUM source
+yum install -y telnet curl wget net-tools
+sudo yum install -y epel-release
+yum clean all -y
+curl -s https://assets.emqx.com/scripts/install-emqx-rpm.sh | sudo bash
+yum install epel-release -y ;
+yum install -y openssl11 openssl11-devel ;
+sudo yum install emqx -y;
+sudo systemctl start emqx
+systemctl status emqx
+ss -ltn
+
+systemctl daemon-reload
+systemctl restart emqx
+
+# installation by RPM (Only for centOS)
+wget https://www.emqx.com/en/downloads/broker/5.5.1/emqx-5.5.1-el8-amd64.rpm
+sudo yum install emqx-5.5.1-el8-amd64.rpm -y
+sudo systemctl start emqx
+
+
+# ----------------------------- Start the EMQX by systemctl ----------------------------------------
+sudo systemctl start emqx
+#sudo systemctl enable emqx
+sudo service emqx start
+emqx --version
+
+# ----------------------------- Direct Start the EMQX by systemctl ----------------------------------------
+emqx start
+EMQX 5.5.1 is started successfully!
+
+emqx ctl status
+Node 'emqx@127.0.0.1' 5.5.1 is started
+
+
+# ---- Firewall----
+Link : https://www.emqx.io/docs/en/latest/faq/faq.html#what-should-i-do-if-emqx-prompts-that-the-port-is-occupied-eaddrinuse-when-starting
+Port       Description
+1883       MQTT/TCP Protocol Port
+8883       MQTT/SSL Protocol Port
+8081       EMQX REST API Port
+8083       MQTT/WS(WebSocket listener) Protocol Port
+8084       MQTT/WSS(WebSocket over SSL) Protocol Port
+4370       EMQX Cluster Node Discovery Port
+5370       EMQX Cluster Remote Procedure Call(RPC) Load Sharing Port
+18083      WEB Dashboard Port
+
+sudo firewall-cmd --add-port=18083/tcp --permanent
+sudo firewall-cmd --add-port=8083/tcp --permanent
+sudo firewall-cmd --add-port=1883/tcp --permanent
+sudo firewall-cmd --add-port=8081/tcp --permanent
+sudo firewall-cmd --add-port=8883/tcp --permanent
+sudo firewall-cmd --add-port=8084/tcp --permanent
+
+sudo firewall-cmd --add-port=4370/tcp --permanent
+sudo firewall-cmd --add-port=5370/tcp --permanent
+
+sudo firewall-cmd --reload
+sudo firewall-cmd --list-all
+
+
+# ---- Dashboard Check ----
+Web Dashboard : http://IP:18083/
+Default-login: 
+    username : admin 
+    password : public
+    new password : emqx#1234
+
+# ----------------------------- Service for EMQX ------------------------
+# service path : vi /etc/systemd/system/multi-user.target.wants/emqx.service
+[Unit]
+Description=emqx daemon
+After=network.target
+
+[Service]
+User=emqx
+Group=emqx
+
+# The ExecStart= is foreground, so 'simple' here
+Type=simple
+Environment=HOME=/var/lib/emqx
+
+# log to file by default (if no log handler config)
+Environment=EMQX_DEFAULT_LOG_HANDLER=file
+
+# Start 'foreground' but not 'start' (daemon) mode.
+# Because systemd monitor/restarts 'simple' services
+ExecStart=/bin/bash /usr/bin/emqx foreground
+
+# Give EMQX enough file descriptors
+LimitNOFILE=1048576
+
+# ExecStop is commented out so systemd will send a SIGTERM when 'systemctl stop'.
+# SIGTERM is handled by EMQX and it then performs a graceful shutdown
+# emqx stop will ping node, always return 0 to make sure next command will be executed
+ExecStop=/bin/bash -c '/usr/bin/emqx stop; exit 0'
+# If the process is still running, force kill it
+ExecStop=/bin/bash -c 'if [ ps -p $MAINPID >/dev/null 2>&1 ]; then kill -15 $MAINPID; fi'
+
+# Wait long enough before force kill for graceful shutdown
+TimeoutStopSec=120s
+
+Restart=on-failure
+
+# Do not restart immediately so the peer nodes in the cluster have
+# enough time to handle the 'DOWN' events of this node
+RestartSec=120s
+
+[Install]
+WantedBy=multi-user.target
+
+# ------------------------------ Main config File ---------------------------------------------------------------------
+official Configuration file Link : https://www.emqx.io/docs/en/latest/configuration/configuration.html
+
+Depends on your installation mode, emqx.conf is stored in:
+-----------------------------------------------------------------------------
+Installation	                              Path
+-----------------------------------------------------------------------------
+Installed with RPM or DEB package	          /etc/emqx/emqx.conf
+Running in docker container	                  /opt/emqx/etc/emqx.conf
+Extracted from portable compressed package	  ./etc/emqx.conf
+-----------------------------------------------------------------------------
+
+Configuration file path: /etc/emqx
+Log file path: /var/log/emqx
+Data file path: ``/var/lib/emqx`
+
+# ------------------------------ password reset -----------------------------
+LINK : https://www.emqx.io/docs/en/v5.5/admin/cli.html#admins
+emqx ctl admins passwd <Username> <Password>
+emqx ctl admins passwd admin password#1234
+
+# ------------------------------ Cluster Join -------------------------------
+emqx ctl cluster join emqx@192.168.121.141
+netstat -tupln | grep emqx
+
+# ------------------------------ Cluster leave -------------------------------
+emqx ctl cluster leave emqx@192.168.121.141
+emqx ctl cluster force-leave emqx@192.168.121.141
+
+# ------------------------------ Uninstall -------------------------------
+sudo yum remove emqx -y
+sudo rm -rf /etc/emqx 
+sudo rm -rf /var/lib/emqx 
+sudo rm -rf /var/log/emqx
+
+sudo rm /etc/systemd/system/emqx.service
+sudo systemctl daemon-reload
+
+sudo userdel emqx
+sudo groupdel emqx
+
+# ------------------------------ Cluster setup ------------------------------------------------------------------------
+vi /etc/emqx/emqx.conf
+systemctl daemon-reload
+systemctl restart emqx
+systemctl status emqx
+
+status Check :  
+emqx ctl status 
+emqx ctl cluster status
+
+# join a master/node1 cluster 
+emqx ctl cluster join emqx@192.168.121.141
+emqx ctl status
+emqx ctl cluster status
+
+
+# ---------------------------------------------------------------------------
+Load test : https://mqttx.app/docs/get-started
+
+# ------------------------------ Docker container setup ---------------------------------------------------------------------
+official Docs : https://www.emqx.io/docs/en/latest/
+
+
+
+official Docker Setup link : https://www.emqx.io/docs/en/latest/deploy/install-docker.html
+sudo localectl set-locale LANG=C.UTF-8
+
+
+# ------------------------------ Docker installation ----------------------------
+
+sudo yum install -y yum-utils
+sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+sudo yum -y install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+sudo usermod -aG docker $(whoami)
+sudo systemctl start docker
+sudo systemctl enable --now docker
+newgrp docker
+
+# Docker Image Pull
+docker pull emqx/emqx:5.5.1
+
+# Creating a volume 
+mkdir -p /opt/emqx/data /opt/emqx/log
+
+cd /opt/emqx/
+
+# Give a permission to the folder, docker can create a conf files on it
+chmod -R 777 /opt/emqx/
+
+# run a docker container of emqx
+docker run -d --name emqx \
+  -p 1883:1883 -p 8083:8083 \
+  -p 8084:8084 -p 8883:8883 \
+  -p 18083:18083 \
+  -v $PWD/data:/opt/emqx/data \
+  -v $PWD/log:/opt/emqx/log \
+  emqx/emqx:5.5.1
+
+
+docker ps -a
+
+# ------------------------------ Cluster creating - Manually ---------------------------------------------------------------------
+official Cluster creation Link : https://www.emqx.io/docs/en/latest/deploy/cluster/create-cluster.html#manual-clustering-example
+
+#docker network create for cluster
+docker network create emqx-net 
+
+
+# Docker container 1 : Master node
+docker run -d \
+    --name emqx1 \
+    -e "EMQX_NODE_NAME=emqx@node1.emqx.com" \
+    --network emqx-bridge \
+    --network-alias node1.emqx.com \
+    -p 1883:1883 \
+    -p 8083:8083 \
+    -p 8084:8084 \
+    -p 8883:8883 \
+    -p 18083:18083 \
+    emqx/emqx:5.5.1
+
+# Docker container 2 : slave node1
+docker run -d \
+    --name emqx2 \
+    -e "EMQX_NODE_NAME=emqx@node2.emqx.com" \
+    --network emqx-net \
+    --network-alias node2.emqx.com \
+    emqx/emqx:5.5.1
+
+# Docker container 2 : join a Master Node, second command is run inside the container  
+docker exec -it emqx2 \
+    emqx ctl cluster join emqx@node1.emqx.com
+
+
+# ------------------------------- Docker Compose --------------------------------------------
+sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" \
+     -o /usr/local/bin/docker-compose
+sudo chmod +x /usr/local/bin/docker-compose
+docker-compose --version
+vi docker-compose.yml
+version: '3'
+
+services:
+  emqx1:
+    image: emqx:5.5.1
+    container_name: emqx1
+    environment:
+    - "EMQX_NODE_NAME=emqx@node1.emqx.io"
+    - "EMQX_CLUSTER__DISCOVERY_STRATEGY=static"
+    - "EMQX_CLUSTER__STATIC__SEEDS=[emqx@node1.emqx.io,emqx@node2.emqx.io]"
+    healthcheck:
+      test: ["CMD", "/opt/emqx/bin/emqx", "ctl", "status"]
+      interval: 5s
+      timeout: 25s
+      retries: 5
+    networks:
+      emqx-bridge:
+        aliases:
+        - node1.emqx.io
+    ports:
+      - 1883:1883
+      - 8083:8083
+      - 8084:8084
+      - 8883:8883
+      - 18083:18083 
+    volumes:
+      - $PWD/emqx1_data:/opt/emqx/data
+
+  emqx2:
+    image: emqx:5.5.1
+    container_name: emqx2
+    environment:
+    - "EMQX_NODE_NAME=emqx@node2.emqx.io"
+    - "EMQX_CLUSTER__DISCOVERY_STRATEGY=static"
+    - "EMQX_CLUSTER__STATIC__SEEDS=[emqx@node1.emqx.io,emqx@node2.emqx.io]"
+    healthcheck:
+      test: ["CMD", "/opt/emqx/bin/emqx", "ctl", "status"]
+      interval: 5s
+      timeout: 25s
+      retries: 5
+    networks:
+      emqx-bridge:
+        aliases:
+        - node2.emqx.io
+    volumes:
+      - $PWD/emqx2_data:/opt/emqx/data
+
+networks:
+  emqx-bridge:
+    driver: bridge
+
+
+docker-compose up -d
+docker exec -it emqx1 sh -c "emqx ctl cluster status"
+
+
+# ------------------------------- Error Fix --------------------------------------------
+yum update -y 
+yum install -y telnet curl wget net-tools
+sudo yum install -y epel-release
+sudo yum install -y openssl11 openssl11-devel
+sudo yum install -y ncurses-compat-libs
+yum install libatomic -y
+
+# error
+sudo yum install -y gcc make
+wget https://zlib.net/zlib-1.2.11.tar.gz
+tar -xzvf zlib-1.2.11.tar.gz
+cd zlib-1.2.11
+./configure
+make
+sudo make install
+
+sudo yum install -y centos-release-scl
+sudo yum install -y devtoolset-9
+
+# ------------------------------ Performance tunning (All Node)---------------------------------------------------------------------
+# 2 millions system-wide
+sysctl -w fs.file-max=2097152
+sysctl -w fs.nr_open=2097152
+echo 2097152 > /proc/sys/fs/nr_open
+ulimit -n 2097152
+
+echo "fs.file-max = 2097152">>/etc/sysctl.conf
+echo "fs.file-max = 2097152">>/etc/sysctl.conf
+echo "DefaultLimitNOFILE=2097152">>/etc/systemd/system.conf
+
+
+vi /usr/lib/systemd/system/emqx.service
+LimitNOFILE=2097152
+
+
+echo -e "*      soft   nofile      2097152
+*      hard   nofile      2097152">>/etc/security/limits.conf
+
+systemctl restart emqx
+systemctl daemon-reload
+
+
+### ------------- Network -----------------------------------------
+
+sysctl -w net.core.somaxconn=32768
+sysctl -w net.ipv4.tcp_max_syn_backlog=16384
+sysctl -w net.core.netdev_max_backlog=16384
+sysctl -w net.ipv4.ip_local_port_range='1024 65535'
+sysctl -w net.core.rmem_default=262144
+sysctl -w net.core.wmem_default=262144
+sysctl -w net.core.rmem_max=16777216
+sysctl -w net.core.wmem_max=16777216
+sysctl -w net.core.optmem_max=16777216
+#sysctl -w net.ipv4.tcp_mem='16777216 16777216 16777216'
+sysctl -w net.ipv4.tcp_rmem='1024 4096 16777216'
+sysctl -w net.ipv4.tcp_wmem='1024 4096 16777216'
+sysctl -w net.nf_conntrack_max=1000000
+sysctl -w net.netfilter.nf_conntrack_max=1000000
+sysctl -w net.netfilter.nf_conntrack_tcp_timeout_time_wait=30
+sysctl -w net.ipv4.tcp_max_tw_buckets=1048576
+# Enabling following option is not recommended. It could cause connection reset under NAT
+# sysctl -w net.ipv4.tcp_tw_recycle=1
+# sysctl -w net.ipv4.tcp_tw_reuse=1
+sysctl -w net.ipv4.tcp_fin_timeout=15
+vi /etc/emqx/emqx.conf
+## Sets the maximum number of simultaneously existing ports for this system
+node.max_ports = 2097152
+  # node {
+  #   name = "emqx@10.13.194.69"
+  #   cookie = "emqxsecretcookie"
+  #   data_dir = "/var/lib/emqx"
+  #   max_ports = 2097152   # this line needed to be add
+  # }
+echo -e "## TCP Listener
+#listeners.tcp.$name.acceptors = 64
+#listeners.tcp.$name.max_connections = 1024000" >> /etc/emqx/emqx.conf
+
+systemctl restart emqx
