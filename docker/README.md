@@ -2,54 +2,54 @@
 
 Complete step-by-step installation instructions for Docker on various Linux distributions.
 
+## Table of Contents
+
+- [Ubuntu / Debian-based Systems](#ubuntu--debian-based-systems)
+- [RHEL / CentOS / Rocky Linux / AlmaLinux](#rhel--centos--rocky-linux--almalinux)
+- [Oracle Linux](#oracle-linux)
+- [AWS Amazon Linux 2023](#aws-amazon-linux-2023)
+- [AWS Amazon Linux 2](#aws-amazon-linux-2)
+- [Post-Installation Verification](#post-installation-verification)
+- [Uninstall Docker](#uninstall-docker)
+  - [Ubuntu / Debian Uninstall](#ubuntu--debian-uninstall)
+  - [RHEL / CentOS / Rocky / AlmaLinux / Oracle Linux Uninstall](#rhel--centos--rocky--almalinux--oracle-linux-uninstall)
+  - [AWS Amazon Linux Uninstall](#aws-amazon-linux-uninstall)
+- [Important Notes](#important-notes)
+- [Troubleshooting](#troubleshooting)
+
 ---
 
 ## Ubuntu / Debian-based Systems
 
-### Update Package Index and Install Prerequisites
 ```bash
-sudo apt-get update
-sudo apt-get install -y ca-certificates curl gnupg lsb-release
-```
+# Update package index
+apt update -y
 
-### Add Docker's Official GPG Key
-```bash
-sudo install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-sudo chmod a+r /etc/apt/keyrings/docker.gpg
-```
+# Install dependencies
+apt install -y ca-certificates curl gnupg lsb-release
 
-### Set Up the Repository
-```bash
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-  $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-```
+# Add Docker GPG key
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+chmod a+r /etc/apt/keyrings/docker.gpg
 
-### Install Docker Engine
-```bash
-sudo apt-get update
-sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-```
+# Add Docker repository
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
 
-### Post-Installation Steps
-```bash
-# Add current user to docker group
-sudo usermod -aG docker $(whoami)
+# Install Docker Engine, CLI, and Compose
+apt update -y
+apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
-# Start and enable Docker service
-sudo systemctl start docker
-sudo systemctl enable docker
+# Enable and start Docker
+systemctl enable docker
+systemctl start docker
 
-# Verify installation
-sudo docker --version
-```
+# Add current user to docker group (optional)
+usermod -aG docker $USER
 
-### Install Docker Compose (Standalone)
-```bash
-sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-sudo chmod +x /usr/local/bin/docker-compose
-docker-compose --version
+# Verify Docker
+docker --version
+docker run hello-world
 ```
 
 ---
