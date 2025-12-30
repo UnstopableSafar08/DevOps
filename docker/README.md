@@ -56,23 +56,16 @@ docker run hello-world
 
 ## RHEL / CentOS / Rocky Linux / AlmaLinux
 
-### Install Required Packages
 ```bash
+# Install required packages
 sudo yum install -y yum-utils
-```
 
-### Add Docker Repository
-```bash
+# Add Docker repository
 sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
-```
 
-### Install Docker Engine
-```bash
+# Install Docker Engine
 sudo yum -y install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-```
 
-### Post-Installation Steps
-```bash
 # Add users to docker group
 sudo usermod -aG docker $(whoami)
 sudo usermod -aG docker root
@@ -96,23 +89,16 @@ docker-compose --version
 
 ## Oracle Linux
 
-### Install Required Packages
 ```bash
+# Install required packages
 sudo yum install -y yum-utils
-```
 
-### Add Docker Repository
-```bash
+# Add Docker repository
 sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
-```
 
-### Install Docker Engine
-```bash
+# Install Docker Engine
 sudo yum -y install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-```
 
-### Post-Installation Steps
-```bash
 # Add users to docker group
 sudo usermod -aG docker $(whoami)
 sudo usermod -aG docker root
@@ -136,18 +122,13 @@ docker-compose --version
 
 ## AWS Amazon Linux 2023
 
-### Update System Packages
 ```bash
+# Update system packages
 sudo yum update -y
-```
 
-### Install Docker
-```bash
+# Install Docker
 sudo yum install -y docker
-```
 
-### Post-Installation Steps
-```bash
 # Add current user to docker group
 sudo usermod -aG docker $(whoami)
 
@@ -170,18 +151,13 @@ docker-compose --version
 
 ## AWS Amazon Linux 2
 
-### Update System Packages
 ```bash
+# Update system packages
 sudo yum update -y
-```
 
-### Install Docker
-```bash
+# Install Docker
 sudo yum install -y docker
-```
 
-### Post-Installation Steps
-```bash
 # Add users to docker group
 sudo usermod -aG docker $(whoami)
 sudo usermod -aG docker ec2-user
@@ -218,6 +194,92 @@ sudo systemctl status docker
 docker info
 ```
 
+---
+
+## Uninstall Docker
+
+### Ubuntu / Debian Uninstall
+
+```bash
+# Stop Docker service
+systemctl stop docker
+systemctl stop containerd
+
+# Remove Docker packages
+apt purge -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin docker-ce-rootless-extras
+
+# Remove Docker repository
+rm /etc/apt/sources.list.d/docker.list
+rm /etc/apt/keyrings/docker.gpg
+
+# Remove all Docker data, images, containers, and volumes
+rm -rf /var/lib/docker
+rm -rf /var/lib/containerd
+
+# Remove Docker group (optional)
+groupdel docker
+
+# Clean up unused packages
+apt autoremove -y
+apt autoclean
+```
+
+---
+
+### RHEL / CentOS / Rocky / AlmaLinux / Oracle Linux Uninstall
+
+```bash
+# Stop Docker service
+systemctl stop docker
+systemctl stop containerd
+
+# Remove Docker packages
+yum remove -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+# Remove Docker repository
+rm /etc/yum.repos.d/docker-ce.repo
+
+# Remove all Docker data, images, containers, and volumes
+rm -rf /var/lib/docker
+rm -rf /var/lib/containerd
+
+# Remove Docker Compose standalone (if installed)
+rm /usr/local/bin/docker-compose
+
+# Remove Docker group (optional)
+groupdel docker
+
+# Clean up
+yum clean all
+```
+
+---
+
+### AWS Amazon Linux Uninstall
+
+```bash
+# Stop Docker service
+systemctl stop docker
+
+# Remove Docker package
+yum remove -y docker
+
+# Remove all Docker data, images, containers, and volumes
+rm -rf /var/lib/docker
+rm -rf /var/lib/containerd
+
+# Remove Docker Compose standalone (if installed)
+rm /usr/local/bin/docker-compose
+
+# Remove Docker group (optional)
+groupdel docker
+
+# Clean up
+yum clean all
+```
+
+---
+
 ## Important Notes
 
 1. **Logout Required**: After adding your user to the docker group, you must log out and log back in (or reboot) for the changes to take effect.
@@ -227,6 +289,8 @@ docker info
 3. **SELinux**: On RHEL-based systems with SELinux enabled, you may need to configure SELinux policies for Docker.
 
 4. **Docker Compose Plugin vs Standalone**: Modern Docker installations include docker compose as a plugin (use `docker compose` instead of `docker-compose`). The standalone installation is still available for compatibility.
+
+5. **Uninstall Warning**: Uninstalling Docker will permanently delete all images, containers, volumes, and custom configuration files. Make sure to backup any important data before proceeding with uninstallation.
 
 ---
 
