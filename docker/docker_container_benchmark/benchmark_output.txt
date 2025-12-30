@@ -1,0 +1,361 @@
+[0;32mStarting benchmark for 3 containers...[0m
+[1;33mProcessing container: bell1[0m
+=== Benchmark for bell1 ===
+[0;32m--- CPU Benchmark ---[0m
+sysbench 1.0.20 (using system LuaJIT 2.1.0-beta3)
+
+Running the test with following options:
+Number of threads: 2
+Initimallazing random number generator from current time
+
+
+Prime numbers limit: 10000
+
+Initimallazing worker threads...
+
+Threads started!
+
+CPU speed:
+    events per second:  3759.79
+
+General statistics:
+    total time:                          10.0005s
+    total number of events:              37606
+
+Latency (ms):
+         min:                                    0.39
+         avg:                                    0.53
+         max:                                    1.31
+         95th percentile:                        0.77
+         sum:                                19989.65
+
+Threads fairness:
+    events (avg/stddev):           18803.0000/4.00
+    execution time (avg/stddev):   9.9948/0.00
+[0;32m--- Memory Benchmark ---[0m
+sysbench 1.0.20 (using system LuaJIT 2.1.0-beta3)
+
+Running the test with following options:
+Number of threads: 1
+Initimallazing random number generator from current time
+
+
+Running memory speed test with the following options:
+  block size: 1KiB
+  total size: 102400MiB
+  operation: write
+  scope: global
+
+Initimallazing worker threads...
+
+Threads started!
+
+Total operations: 59646754 (5963646.16 per second)
+
+58248.78 MiB transferred (5823.87 MiB/sec)
+
+
+General statistics:
+    total time:                          10.0002s
+    total number of events:              59646754
+
+Latency (ms):
+         min:                                    0.00
+         avg:                                    0.00
+         max:                                    0.37
+         95th percentile:                        0.00
+         sum:                                 4036.03
+
+Threads fairness:
+    events (avg/stddev):           59646754.0000/0.00
+    execution time (avg/stddev):   4.0360/0.00
+[0;32m--- Disk Benchmark ---[0m
+sysbench 1.0.20 (using system LuaJIT 2.1.0-beta3)
+
+Running the test with following options:
+Number of threads: 1
+Initimallazing random number generator from current time
+
+
+Extra file open flags: (none)
+128 files, 8MiB each
+1GiB total file size
+Block size 16KiB
+Number of IO requests: 0
+Read/Write ratio for combined random IO test: 1.50
+Periodic FSYNC enabled, calling fsync() each 100 requests.
+Calling fsync() at the end of test, Enabled.
+Using synchronous I/O mode
+Doing random r/w test
+Initimallazing worker threads...
+
+Threads started!
+
+
+File operations:
+    reads/s:                      451.52
+    writes/s:                     301.01
+    fsyncs/s:                     973.43
+
+Throughput:
+    read, MiB/s:                  7.05
+    written, MiB/s:               4.70
+
+General statistics:
+    total time:                          10.0957s
+    total number of events:              17303
+
+Latency (ms):
+         min:                                    0.00
+         avg:                                    0.58
+         max:                                   11.48
+         95th percentile:                        1.93
+         sum:                                 9981.02
+
+Threads fairness:
+    events (avg/stddev):           17303.0000/0.00
+    execution time (avg/stddev):   9.9810/0.00
+[0;32mCompleted benchmark for bell1[0m
+[1;33mProcessing container: bell2[0m
+=== Benchmark for bell2 ===
+[0;32m--- CPU Benchmark ---[0m
+sysbench 1.0.20 (using system LuaJIT 2.1.0-beta3)
+
+Running the test with following options:
+Number of threads: 2
+Initimallazing random number generator from current time
+
+
+Prime numbers limit: 10000
+
+Initimallazing worker threads...
+
+Threads started!
+
+CPU speed:
+    events per second:  4757.81
+
+General statistics:
+    total time:                          10.0006s
+    total number of events:              47592
+
+Latency (ms):
+         min:                                    0.39
+         avg:                                    0.42
+         max:                                    3.06
+         95th percentile:                        0.65
+         sum:                                19986.96
+
+Threads fairness:
+    events (avg/stddev):           23796.0000/13.00
+    execution time (avg/stddev):   9.9935/0.00
+[0;32m--- Memory Benchmark ---[0m
+sysbench 1.0.20 (using system LuaJIT 2.1.0-beta3)
+
+Running the test with following options:
+Number of threads: 1
+Initimallazing random number generator from current time
+
+
+Running memory speed test with the following options:
+  block size: 1KiB
+  total size: 102400MiB
+  operation: write
+  scope: global
+
+Initimallazing worker threads...
+
+Threads started!
+
+Total operations: 59246320 (5923640.94 per second)
+
+57857.73 MiB transferred (5784.81 MiB/sec)
+
+
+General statistics:
+    total time:                          10.0002s
+    total number of events:              59246320
+
+Latency (ms):
+         min:                                    0.00
+         avg:                                    0.00
+         max:                                    0.25
+         95th percentile:                        0.00
+         sum:                                 4020.29
+
+Threads fairness:
+    events (avg/stddev):           59246320.0000/0.00
+    execution time (avg/stddev):   4.0203/0.00
+[0;32m--- Disk Benchmark ---[0m
+sysbench 1.0.20 (using system LuaJIT 2.1.0-beta3)
+
+Running the test with following options:
+Number of threads: 1
+Initimallazing random number generator from current time
+
+
+Extra file open flags: (none)
+128 files, 8MiB each
+1GiB total file size
+Block size 16KiB
+Number of IO requests: 0
+Read/Write ratio for combined random IO test: 1.50
+Periodic FSYNC enabled, calling fsync() each 100 requests.
+Calling fsync() at the end of test, Enabled.
+Using synchronous I/O mode
+Doing random r/w test
+Initimallazing worker threads...
+
+Threads started!
+
+
+File operations:
+    reads/s:                      378.54
+    writes/s:                     252.36
+    fsyncs/s:                     819.57
+
+Throughput:
+    read, MiB/s:                  5.91
+    written, MiB/s:               3.94
+
+General statistics:
+    total time:                          10.1416s
+    total number of events:              14586
+
+Latency (ms):
+         min:                                    0.00
+         avg:                                    0.68
+         max:                                   83.90
+         95th percentile:                        1.82
+         sum:                                 9976.74
+
+Threads fairness:
+    events (avg/stddev):           14586.0000/0.00
+    execution time (avg/stddev):   9.9767/0.00
+[0;32mCompleted benchmark for bell2[0m
+[1;33mProcessing container: bell3[0m
+=== Benchmark for bell3 ===
+[0;32m--- CPU Benchmark ---[0m
+sysbench 1.0.20 (using system LuaJIT 2.1.0-beta3)
+
+Running the test with following options:
+Number of threads: 2
+Initimallazing random number generator from current time
+
+
+Prime numbers limit: 10000
+
+Initimallazing worker threads...
+
+Threads started!
+
+CPU speed:
+    events per second:  4074.11
+
+General statistics:
+    total time:                          10.0005s
+    total number of events:              40749
+
+Latency (ms):
+         min:                                    0.39
+         avg:                                    0.49
+         max:                                    2.52
+         95th percentile:                        0.74
+         sum:                                19981.43
+
+Threads fairness:
+    events (avg/stddev):           20374.5000/15.50
+    execution time (avg/stddev):   9.9907/0.00
+[0;32m--- Memory Benchmark ---[0m
+sysbench 1.0.20 (using system LuaJIT 2.1.0-beta3)
+
+Running the test with following options:
+Number of threads: 1
+Initimallazing random number generator from current time
+
+
+Running memory speed test with the following options:
+  block size: 1KiB
+  total size: 102400MiB
+  operation: write
+  scope: global
+
+Initimallazing worker threads...
+
+Threads started!
+
+Total operations: 60987276 (6097645.86 per second)
+
+59557.89 MiB transferred (5954.73 MiB/sec)
+
+
+General statistics:
+    total time:                          10.0002s
+    total number of events:              60987276
+
+Latency (ms):
+         min:                                    0.00
+         avg:                                    0.00
+         max:                                    0.08
+         95th percentile:                        0.00
+         sum:                                 4020.48
+
+Threads fairness:
+    events (avg/stddev):           60987276.0000/0.00
+    execution time (avg/stddev):   4.0205/0.00
+[0;32m--- Disk Benchmark ---[0m
+sysbench 1.0.20 (using system LuaJIT 2.1.0-beta3)
+
+Running the test with following options:
+Number of threads: 1
+Initimallazing random number generator from current time
+
+
+Extra file open flags: (none)
+128 files, 8MiB each
+1GiB total file size
+Block size 16KiB
+Number of IO requests: 0
+Read/Write ratio for combined random IO test: 1.50
+Periodic FSYNC enabled, calling fsync() each 100 requests.
+Calling fsync() at the end of test, Enabled.
+Using synchronous I/O mode
+Doing random r/w test
+Initimallazing worker threads...
+
+Threads started!
+
+
+File operations:
+    reads/s:                      404.65
+    writes/s:                     269.77
+    fsyncs/s:                     865.31
+
+Throughput:
+    read, MiB/s:                  6.32
+    written, MiB/s:               4.22
+
+General statistics:
+    total time:                          10.2284s
+    total number of events:              15625
+
+Latency (ms):
+         min:                                    0.00
+         avg:                                    0.64
+         max:                                    9.17
+         95th percentile:                        2.11
+         sum:                                 9978.21
+
+Threads fairness:
+    events (avg/stddev):           15625.0000/0.00
+    execution time (avg/stddev):   9.9782/0.00
+[0;32mCompleted benchmark for bell3[0m
+
+===== Docker Container Benchmark Summary =====
+Container  | CPU Events/sec  | Memory Throughput (MiB/sec) | Disk Read (MiB/s) | Disk Write (MiB/s)
+-----------------------------------------------------------------------------------------------
+bell1      | 3759.79         | MiB                       | 7.05            | 4.70           
+bell2      | 4757.81         | MiB                       | 5.91            | 3.94           
+bell3      | 4074.11         | MiB                       | 6.32            | 4.22           
+
+===== Benchmark Completed Sat Nov 15 09:33:37 UTC 2025 =====
