@@ -33,7 +33,7 @@
 - Service CIDR: 10.96.0.0/12
 - Container Runtime: containerd
 - CNI: Flannel
-- Kubernetes Version: 1.29.x
+- Kubernetes Version: 1.34.x
 - OS: RHEL 9.x / Oracle Linux 9.x
 
 ---
@@ -1024,10 +1024,10 @@ sudo ctr version
 cat <<EOF | sudo tee /etc/yum.repos.d/kubernetes.repo
 [kubernetes]
 name=Kubernetes
-baseurl=https://pkgs.k8s.io/core:/stable:/v1.29/rpm/
+baseurl=https://pkgs.k8s.io/core:/stable:/v1.34/rpm/
 enabled=1
 gpgcheck=1
-gpgkey=https://pkgs.k8s.io/core:/stable:/v1.29/rpm/repodata/repomd.xml.key
+gpgkey=https://pkgs.k8s.io/core:/stable:/v1.34/rpm/repodata/repomd.xml.key
 exclude=kubelet kubeadm kubectl cri-tools kubernetes-cni
 EOF
 
@@ -1075,7 +1075,7 @@ nodeRegistration:
 ---
 apiVersion: kubeadm.k8s.io/v1beta3
 kind: ClusterConfiguration
-kubernetesVersion: v1.29.0
+kubernetesVersion: v1.34.0
 controlPlaneEndpoint: "10.10.10.6:6443"
 networking:
   podSubnet: 10.244.0.0/16
@@ -1288,10 +1288,10 @@ sudo ctr version
 cat <<EOF | sudo tee /etc/yum.repos.d/kubernetes.repo
 [kubernetes]
 name=Kubernetes
-baseurl=https://pkgs.k8s.io/core:/stable:/v1.29/rpm/
+baseurl=https://pkgs.k8s.io/core:/stable:/v1.34/rpm/
 enabled=1
 gpgcheck=1
-gpgkey=https://pkgs.k8s.io/core:/stable:/v1.29/rpm/repodata/repomd.xml.key
+gpgkey=https://pkgs.k8s.io/core:/stable:/v1.34/rpm/repodata/repomd.xml.key
 exclude=kubelet kubeadm kubectl cri-tools kubernetes-cni
 EOF
 
@@ -1333,15 +1333,15 @@ kubectl get nodes -o wide
 
 # Should see all 9 nodes (3 masters + 6 workers)
 NAME             STATUS     ROLES           AGE   VERSION
-k8s-master-01    NotReady   control-plane   10m   v1.29.0
-k8s-master-02    NotReady   control-plane   8m    v1.29.0
-k8s-master-03    NotReady   control-plane   6m    v1.29.0
-k8s-worker-01    NotReady   <none>          2m    v1.29.0
-k8s-worker-02    NotReady   <none>          2m    v1.29.0
-k8s-worker-03    NotReady   <none>          2m    v1.29.0
-k8s-worker-04    NotReady   <none>          2m    v1.29.0
-k8s-worker-05    NotReady   <none>          2m    v1.29.0
-k8s-worker-06    NotReady   <none>          2m    v1.29.0
+k8s-master-01    NotReady   control-plane   10m   v1.34.0
+k8s-master-02    NotReady   control-plane   8m    v1.34.0
+k8s-master-03    NotReady   control-plane   6m    v1.34.0
+k8s-worker-01    NotReady   <none>          2m    v1.34.0
+k8s-worker-02    NotReady   <none>          2m    v1.34.0
+k8s-worker-03    NotReady   <none>          2m    v1.34.0
+k8s-worker-04    NotReady   <none>          2m    v1.34.0
+k8s-worker-05    NotReady   <none>          2m    v1.34.0
+k8s-worker-06    NotReady   <none>          2m    v1.34.0
 
 # Nodes will be NotReady until CNI is installed (next section)
 ```
@@ -1489,3 +1489,1015 @@ curl --insecure -sfL https://10.10.13.19/v3/import/abc123xyz.yaml | kubectl appl
 
 # Verify import
 kubectl get pods -n cattle-system
+
+# Check cluster status in Rancher
+# Should show as "Active" in Rancher UI
+```
+
+### 5. Configure Rancher Backup (Optional but Recommended)
+
+```bash
+# Create backup script
+sudo tee /opt/rancher/backup.sh > /dev/null <<'EOF'
+#!/bin/bash
+BACKUP_DIR="/backup/rancher"
+DATE=$(date +%Y%m%d-%H%M%S)
+
+mkdir -p $BACKUP_DIR
+
+# Backup Rancher data
+sudo docker run --rm \
+  -v /opt/rancher:/var/lib/rancher \
+  -v $BACKUP_DIR:/backup \
+  busybox tar czf /backup/rancher-backup-$DATE.tar.gz -C /var/lib/rancher .
+
+# Keep only last 7 backups
+find $BACKUP_DIR -name "rancher-backup-*.tar.gz" -mtime +7 -delete
+
+echo "Backup completed: rancher-backup-$DATE.tar.gz"
+EOF
+
+sudo chmod +x /opt/rancher/backup.sh
+
+# Add to crontab (daily at 2 AM)
+(crontab -l 2>/dev/null; echo "0 2 * * * /opt/rancher/backup.sh") | crontab -
+```
+
+---
+
+## Production Best Practices
+
+### 1. Backup etcd Regularly
+
+Create automated etcd backup on **all master nodes**:
+
+```bash
+# Create backup directory
+sudo mkdir -p /var/backup/etcd
+
+# Create backup script
+sudo tee /usr/local/bin/etcd-backup.sh > /dev/null <<'EOF'
+#!/bin/bash
+BACKUP_DIR="/var/backup/etcd"
+RETENTION_DAYS=7
+DATE=$(date +%Y%m%d-%H%M%S)
+
+mkdir -p $BACKUP_DIR
+
+# Perform backup
+ETCDCTL_API=3 etcdctl \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key \
+  snapshot save $BACKUP_DIR/etcd-snapshot-$DATE.db
+
+# Verify backup
+ETCDCTL_API=3 etcdctl \
+  --write-out=table \
+  snapshot status $BACKUP_DIR/etcd-snapshot-$DATE.db
+
+# Remove old backups
+find $BACKUP_DIR -name "etcd-snapshot-*.db" -mtime +$RETENTION_DAYS -delete
+
+echo "etcd backup completed: $BACKUP_DIR/etcd-snapshot-$DATE.db"
+EOF
+
+sudo chmod +x /usr/local/bin/etcd-backup.sh
+
+# Add to crontab (daily at 2 AM)
+sudo crontab -l 2>/dev/null | { cat; echo "0 2 * * * /usr/local/bin/etcd-backup.sh >> /var/log/etcd-backup.log 2>&1"; } | sudo crontab -
+
+# Test backup
+sudo /usr/local/bin/etcd-backup.sh
+```
+
+**Restore from backup (if needed):**
+```bash
+# Stop etcd
+sudo systemctl stop kubelet
+
+# Restore snapshot
+sudo ETCDCTL_API=3 etcdctl \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key \
+  --data-dir=/var/lib/etcd-restore \
+  snapshot restore /var/backup/etcd/etcd-snapshot-YYYYMMDD-HHMMSS.db
+
+# Move old data
+sudo mv /var/lib/etcd /var/lib/etcd.old
+sudo mv /var/lib/etcd-restore /var/lib/etcd
+
+# Start kubelet
+sudo systemctl start kubelet
+
+# Verify
+kubectl get nodes
+```
+
+### 2. Enable Audit Logging
+
+On **all master nodes**, create audit policy:
+
+```bash
+# Create audit policy directory
+sudo mkdir -p /etc/kubernetes/audit
+
+# Create audit policy
+sudo tee /etc/kubernetes/audit/audit-policy.yaml > /dev/null <<'EOF'
+apiVersion: audit.k8s.io/v1
+kind: Policy
+omitStages:
+  - "RequestReceived"
+rules:
+  # Log pod changes at RequestResponse level
+  - level: RequestResponse
+    resources:
+    - group: ""
+      resources: ["pods", "pods/log", "pods/status"]
+  
+  # Log service and endpoints at RequestResponse level
+  - level: RequestResponse
+    resources:
+    - group: ""
+      resources: ["services", "endpoints"]
+  
+  # Log secrets, configmaps at Metadata level
+  - level: Metadata
+    resources:
+    - group: ""
+      resources: ["secrets", "configmaps"]
+  
+  # Log create, update, patch, delete operations at Request level
+  - level: Request
+    verbs: ["create", "update", "patch", "delete"]
+    resources:
+    - group: ""
+    - group: "apps"
+    - group: "batch"
+  
+  # Log everything else at Metadata level
+  - level: Metadata
+    omitStages:
+    - "RequestReceived"
+EOF
+
+# Create log directory
+sudo mkdir -p /var/log/kubernetes
+
+# Edit kube-apiserver manifest
+sudo vi /etc/kubernetes/manifests/kube-apiserver.yaml
+
+# Add these lines under spec.containers[0].command:
+#   - --audit-policy-file=/etc/kubernetes/audit/audit-policy.yaml
+#   - --audit-log-path=/var/log/kubernetes/audit.log
+#   - --audit-log-maxage=30
+#   - --audit-log-maxbackup=10
+#   - --audit-log-maxsize=100
+
+# Add volume mounts:
+#   volumeMounts:
+#   - mountPath: /etc/kubernetes/audit
+#     name: audit-policy
+#     readOnly: true
+#   - mountPath: /var/log/kubernetes
+#     name: audit-logs
+
+# Add volumes:
+#   volumes:
+#   - name: audit-policy
+#     hostPath:
+#       path: /etc/kubernetes/audit
+#       type: DirectoryOrCreate
+#   - name: audit-logs
+#     hostPath:
+#       path: /var/log/kubernetes
+#       type: DirectoryOrCreate
+
+# The kubelet will automatically restart the API server
+# Wait a few moments and verify
+kubectl get pods -n kube-system | grep kube-apiserver
+
+# Verify audit logs
+sudo tail -f /var/log/kubernetes/audit.log
+```
+
+### 3. Resource Quotas and Limits
+
+```bash
+# Create resource quota
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: compute-quota
+  namespace: default
+spec:
+  hard:
+    requests.cpu: "100"
+    requests.memory: 200Gi
+    limits.cpu: "200"
+    limits.memory: 400Gi
+    persistentvolumeclaims: "10"
+    services.loadbalancers: "2"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: limit-range
+  namespace: default
+spec:
+  limits:
+  - max:
+      cpu: "4"
+      memory: "8Gi"
+    min:
+      cpu: "100m"
+      memory: "128Mi"
+    default:
+      cpu: "500m"
+      memory: "512Mi"
+    defaultRequest:
+      cpu: "200m"
+      memory: "256Mi"
+    type: Container
+EOF
+
+# Verify
+kubectl describe quota -n default
+kubectl describe limitrange -n default
+```
+
+### 4. Pod Security Standards
+
+```bash
+# Create restricted namespace
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: production
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+EOF
+
+# Apply to existing namespaces
+kubectl label namespace default pod-security.kubernetes.io/enforce=baseline
+kubectl label namespace default pod-security.kubernetes.io/warn=restricted
+```
+
+### 5. Network Policies
+
+```bash
+# Default deny all traffic
+cat <<EOF | kubectl apply -f -
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: default
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+---
+# Allow DNS
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: default
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+EOF
+```
+
+### 6. RBAC Configuration
+
+```bash
+# Create read-only user
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: readonly-user
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: readonly-cluster-role
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "nodes", "namespaces"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "statefulsets", "daemonsets"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: readonly-cluster-role-binding
+subjects:
+- kind: ServiceAccount
+  name: readonly-user
+  namespace: default
+roleRef:
+  kind: ClusterRole
+  name: readonly-cluster-role
+  apiGroup: rbac.authorization.k8s.io
+EOF
+```
+
+### 7. Monitoring Setup with Prometheus
+
+```bash
+# Install Helm (on master node)
+curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+# Verify Helm
+helm version
+
+# Add Prometheus Helm repository
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo update
+
+# Create monitoring namespace
+kubectl create namespace monitoring
+
+# Install kube-prometheus-stack
+helm install prometheus prometheus-community/kube-prometheus-stack \
+  --namespace monitoring \
+  --set prometheus.prometheusSpec.retention=30d \
+  --set prometheus.prometheusSpec.storageSpec.volumeClaimTemplate.spec.resources.requests.storage=50Gi \
+  --set grafana.adminPassword='SecureP@ssw0rd!' \
+  --set alertmanager.enabled=true
+
+# Wait for deployment
+kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=grafana -n monitoring --timeout=300s
+
+# Get Grafana admin password
+kubectl get secret -n monitoring prometheus-grafana -o jsonpath="{.data.admin-password}" | base64 --decode
+
+# Port forward to access Grafana
+kubectl port-forward -n monitoring svc/prometheus-grafana 3000:80
+
+# Access Grafana at: http://localhost:3000
+# Username: admin
+# Password: (from above command)
+```
+
+### 8. Certificate Management
+
+```bash
+# Check certificate expiration
+sudo kubeadm certs check-expiration
+
+# Renew certificates (run on each master before expiry)
+sudo kubeadm certs renew all
+
+# Verify renewal
+sudo kubeadm certs check-expiration
+
+# Restart control plane components
+sudo systemctl restart kubelet
+
+# Update kubeconfig
+sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+sudo chown $(id -u):$(id -g) $HOME/.kube/config
+```
+
+### 9. Log Management
+
+```bash
+# Configure log rotation for Kubernetes
+sudo tee /etc/logrotate.d/kubernetes > /dev/null <<'EOF'
+/var/log/kubernetes/*.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0644 root root
+}
+EOF
+
+# Configure containerd log rotation
+sudo tee /etc/logrotate.d/containerd > /dev/null <<'EOF'
+/var/log/containers/*.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}
+EOF
+
+# Test log rotation
+sudo logrotate -d /etc/logrotate.d/kubernetes
+```
+
+### 10. Node Maintenance Procedures
+
+```bash
+# Drain node before maintenance
+kubectl drain k8s-worker-01 --ignore-daemonsets --delete-emptydir-data
+
+# Perform maintenance (updates, reboot, etc.)
+sudo dnf update -y
+sudo reboot
+
+# After maintenance, uncordon node
+kubectl uncordon k8s-worker-01
+
+# Verify node is ready
+kubectl get nodes k8s-worker-01
+```
+
+---
+
+## Verification & Testing
+
+### 1. Comprehensive Cluster Health Check
+
+```bash
+# Check all nodes
+kubectl get nodes -o wide
+
+# Check all pods
+kubectl get pods --all-namespaces -o wide
+
+# Check component status
+kubectl get componentstatuses
+
+# Check cluster info
+kubectl cluster-info
+kubectl cluster-info dump > /tmp/cluster-dump.txt
+
+# Check etcd health
+sudo ETCDCTL_API=3 etcdctl \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key \
+  endpoint health
+
+# Check etcd member list
+sudo ETCDCTL_API=3 etcdctl \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key \
+  member list -w table
+```
+
+### 2. Deployment Testing
+
+```bash
+# Create test namespace
+kubectl create namespace test
+
+# Deploy nginx
+cat <<EOF | kubectl apply -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-test
+  namespace: test
+spec:
+  replicas: 6
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:latest
+        ports:
+        - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-service
+  namespace: test
+spec:
+  selector:
+    app: nginx
+  type: NodePort
+  ports:
+  - port: 80
+    targetPort: 80
+    nodePort: 30080
+EOF
+
+# Wait for deployment
+kubectl wait --for=condition=available --timeout=300s deployment/nginx-test -n test
+
+# Check deployment
+kubectl get deployment -n test
+kubectl get pods -n test -o wide
+kubectl get svc -n test
+
+# Test service access
+WORKER_IP=$(kubectl get nodes -l '!node-role.kubernetes.io/control-plane' -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+curl http://$WORKER_IP:30080
+
+# Test internal DNS
+kubectl run -it --rm debug --image=busybox --restart=Never -n test -- nslookup nginx-service.test.svc.cluster.local
+
+# Cleanup
+kubectl delete namespace test
+```
+
+### 3. HA Testing
+
+#### Test Master Failover
+
+```bash
+# On first master, stop kubelet
+ssh k8s-master-01 'sudo systemctl stop kubelet'
+
+# From another master, verify cluster still works
+kubectl get nodes
+kubectl get pods -A
+
+# The first master should show NotReady, but cluster should function
+
+# Restart first master
+ssh k8s-master-01 'sudo systemctl start kubelet'
+
+# Verify it rejoins
+kubectl get nodes
+```
+
+#### Test HAProxy Failover
+
+```bash
+# On current MASTER HAProxy node
+sudo systemctl stop haproxy
+
+# VIP should move to BACKUP node
+# Check on both HAProxy nodes
+ip addr show | grep 10.10.10.6
+
+# Verify cluster still accessible
+kubectl --server=https://10.10.10.6:6443 get nodes
+
+# Restart HAProxy
+sudo systemctl start haproxy
+```
+
+### 4. Performance Testing
+
+```bash
+# Install stress-ng for testing
+kubectl run stress --image=alexeiled/stress-ng --restart=Never -- \
+  --cpu 4 --timeout 60s --metrics-brief
+
+# Monitor resource usage
+kubectl top nodes
+kubectl top pods -A
+
+# Cleanup
+kubectl delete pod stress
+```
+
+### 5. Network Performance Testing
+
+```bash
+# Deploy iperf3 server
+kubectl create deployment iperf3-server --image=networkstatic/iperf3 -- -s
+
+# Get server pod name and IP
+IPERF_SERVER=$(kubectl get pod -l app=iperf3-server -o jsonpath='{.items[0].metadata.name}')
+IPERF_SERVER_IP=$(kubectl get pod -l app=iperf3-server -o jsonpath='{.items[0].status.podIP}')
+
+# Run client test
+kubectl run iperf3-client --image=networkstatic/iperf3 --rm -it --restart=Never -- -c $IPERF_SERVER_IP -t 30
+
+# Cleanup
+kubectl delete deployment iperf3-server
+```
+
+---
+
+## Troubleshooting
+
+### Common Issues and Solutions
+
+#### 1. Nodes Not Ready
+
+```bash
+# Check node status
+kubectl describe node <node-name>
+
+# Check kubelet logs
+sudo journalctl -u kubelet -f
+
+# Check kubelet status
+sudo systemctl status kubelet
+
+# Restart kubelet
+sudo systemctl restart kubelet
+
+# Check CNI
+kubectl get pods -n kube-flannel
+kubectl logs -n kube-flannel <flannel-pod-name>
+
+# Check containerd
+sudo systemctl status containerd
+sudo journalctl -u containerd -f
+```
+
+#### 2. Pods Stuck in Pending
+
+```bash
+# Describe pod to see reason
+kubectl describe pod <pod-name> -n <namespace>
+
+# Common reasons and solutions:
+
+# Insufficient resources
+kubectl top nodes
+kubectl describe node <node-name>
+
+# Taints on nodes
+kubectl get nodes -o custom-columns=NAME:.metadata.name,TAINTS:.spec.taints
+
+# Remove taint if needed
+kubectl taint nodes <node-name> <taint-key>-
+
+# Image pull errors
+kubectl logs <pod-name> -n <namespace>
+sudo crictl images
+```
+
+#### 3. API Server Unreachable
+
+```bash
+# Check HAProxy
+sudo systemctl status haproxy
+sudo journalctl -u haproxy -f
+
+# Check HAProxy backend health
+echo "show stat" | sudo socat unix-connect:/var/lib/haproxy/stats stdio
+
+# Check VIP
+ip addr show | grep 10.10.10.6
+
+# Check Keepalived
+sudo systemctl status keepalived
+sudo journalctl -u keepalived -f
+
+# Test direct master connection
+curl -k https://10.10.10.10:6443
+curl -k https://10.10.10.11:6443
+curl -k https://10.10.10.12:6443
+
+# Check API server pods
+kubectl get pods -n kube-system | grep kube-apiserver
+kubectl logs -n kube-system kube-apiserver-k8s-master-01
+```
+
+#### 4. etcd Issues
+
+```bash
+# Check etcd pods
+kubectl get pods -n kube-system | grep etcd
+
+# Check etcd logs
+kubectl logs -n kube-system etcd-k8s-master-01
+
+# Verify etcd cluster health
+sudo ETCDCTL_API=3 etcdctl \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key \
+  endpoint health --cluster
+
+# Check etcd member list
+sudo ETCDCTL_API=3 etcdctl \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key \
+  member list
+
+# Check etcd alarms
+sudo ETCDCTL_API=3 etcdctl \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key \
+  alarm list
+```
+
+#### 5. DNS Resolution Issues
+
+```bash
+# Check CoreDNS pods
+kubectl get pods -n kube-system -l k8s-app=kube-dns
+
+# Check CoreDNS logs
+kubectl logs -n kube-system -l k8s-app=kube-dns
+
+# Test DNS resolution
+kubectl run -it --rm debug --image=busybox --restart=Never -- nslookup kubernetes.default
+
+# Restart CoreDNS
+kubectl rollout restart deployment coredns -n kube-system
+
+# Check service
+kubectl get svc -n kube-system kube-dns
+```
+
+#### 6. Flannel Network Issues
+
+```bash
+# Check Flannel pods
+kubectl get pods -n kube-flannel -o wide
+
+# Check Flannel logs
+kubectl logs -n kube-flannel <flannel-pod-name>
+
+# Restart Flannel DaemonSet
+kubectl rollout restart daemonset/kube-flannel-ds -n kube-flannel
+
+# Verify Flannel network
+kubectl get configmap -n kube-flannel kube-flannel-cfg -o yaml
+
+# Check node routes
+ip route show
+
+# Check VXLAN interface
+ip link show flannel.1
+```
+
+#### 7. Certificate Issues
+
+```bash
+# Check certificate expiration
+sudo kubeadm certs check-expiration
+
+# Renew certificates
+sudo kubeadm certs renew all
+
+# Restart kubelet
+sudo systemctl restart kubelet
+
+# Update kubeconfig
+mkdir -p $HOME/.kube
+sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+sudo chown $(id -u):$(id -g) $HOME/.kube/config
+```
+
+### Useful Diagnostic Commands
+
+```bash
+# Get all events
+kubectl get events --sort-by='.lastTimestamp' -A
+
+# Get resource usage
+kubectl top nodes
+kubectl top pods -A --sort-by=memory
+kubectl top pods -A --sort-by=cpu
+
+# Describe node
+kubectl describe node <node-name>
+
+# Get node details
+kubectl get nodes -o json | jq '.items[] | {name:.metadata.name, capacity:.status.capacity, allocatable:.status.allocatable}'
+
+# Check pod resource requests
+kubectl describe nodes | grep -A 5 "Allocated resources"
+
+# Get pod logs
+kubectl logs -f <pod-name> -n <namespace>
+kubectl logs --previous <pod-name> -n <namespace>
+
+# Execute commands in pod
+kubectl exec -it <pod-name> -n <namespace> -- /bin/bash
+
+# Port forwarding
+kubectl port-forward -n <namespace> <pod-name> 8080:80
+
+# Debug networking
+kubectl run -it --rm debug --image=nicolaka/netshoot --restart=Never -- /bin/bash
+
+# Check API server audit logs
+sudo tail -f /var/log/kubernetes/audit.log
+```
+
+### Emergency Procedures
+
+#### Cluster Completely Down
+
+```bash
+# 1. Check all master nodes
+for node in k8s-master-01 k8s-master-02 k8s-master-03; do
+  echo "=== $node ==="
+  ssh $node 'sudo systemctl status kubelet'
+done
+
+# 2. Check etcd on all masters
+for node in k8s-master-01 k8s-master-02 k8s-master-03; do
+  echo "=== $node ==="
+  ssh $node 'sudo crictl ps | grep etcd'
+done
+
+# 3. Check HAProxy and VIP
+for node in haproxy-01 haproxy-02; do
+  echo "=== $node ==="
+  ssh $node 'sudo systemctl status haproxy keepalived'
+  ssh $node 'ip addr show | grep 10.10.10.6'
+done
+
+# 4. Restart services in order
+# On each master:
+sudo systemctl restart containerd
+sudo systemctl restart kubelet
+
+# Wait and verify
+kubectl get nodes
+```
+
+#### Single Master Down
+
+```bash
+# Check status
+kubectl get nodes
+
+# SSH to problem master
+ssh k8s-master-XX
+
+# Check logs
+sudo journalctl -u kubelet -f
+sudo journalctl -u containerd -f
+
+# Check etcd
+sudo crictl ps | grep etcd
+sudo crictl logs <etcd-container-id>
+
+# Restart if needed
+sudo systemctl restart containerd
+sudo systemctl restart kubelet
+
+# If still problematic, may need to remove and rejoin
+# This is a last resort - data may be lost
+```
+
+---
+
+## Security Hardening Checklist
+
+- [ ] Changed all default passwords (HAProxy, Keepalived, Grafana, Rancher)
+- [ ] Configured RBAC with least privilege principle
+- [ ] Enabled Pod Security Standards (PSS/PSA)
+- [ ] Implemented Network Policies
+- [ ] Enabled audit logging on API servers
+- [ ] Configured TLS/SSL for all communications
+- [ ] Disabled anonymous auth on API server
+- [ ] Restricted kubelet permissions
+- [ ] Implemented secrets management (consider Vault/Sealed Secrets)
+- [ ] Enabled image scanning and admission controllers
+- [ ] Configured resource quotas and limits
+- [ ] Implemented backup and disaster recovery
+- [ ] Set up monitoring and alerting
+- [ ] Configured log aggregation
+- [ ] Hardened host OS (SELinux, firewall, updates)
+- [ ] Restricted SSH access (key-based only)
+- [ ] Implemented certificate rotation
+- [ ] Configured node and pod security policies
+- [ ] Reviewed and updated security policies regularly
+
+---
+
+## Maintenance Schedule
+
+### Daily Tasks
+- [ ] Monitor cluster health (nodes, pods, services)
+- [ ] Check logs for errors and warnings
+- [ ] Verify backups completed successfully
+- [ ] Review security alerts
+- [ ] Check resource utilization
+
+### Weekly Tasks
+- [ ] Review resource usage trends
+- [ ] Check certificate expiration dates
+- [ ] Update documentation
+- [ ] Review access logs
+- [ ] Test disaster recovery procedures
+
+### Monthly Tasks
+- [ ] Apply security patches to OS
+- [ ] Review and update RBAC policies
+- [ ] Capacity planning review
+- [ ] Update Kubernetes components (patch versions)
+- [ ] Disaster recovery drill
+- [ ] Review and optimize resource quotas
+
+### Quarterly Tasks
+- [ ] Kubernetes minor version upgrades
+- [ ] Review and optimize workload configurations
+- [ ] Architecture and design review
+- [ ] Security audit
+- [ ] Performance tuning
+- [ ] Review monitoring and alerting rules
+
+---
+
+## Additional Resources
+
+### Official Documentation
+- [Kubernetes Documentation](https://kubernetes.io/docs/)
+- [containerd Documentation](https://containerd.io/)
+- [Flannel Documentation](https://github.com/flannel-io/flannel)
+- [HAProxy Documentation](http://www.haproxy.org/)
+- [Keepalived Documentation](https://www.keepalived.org/)
+- [Rancher Documentation](https://rancher.com/docs/)
+- [RHEL 9 Documentation](https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/9)
+
+### Community Resources
+- [Kubernetes GitHub](https://github.com/kubernetes/kubernetes)
+- [Kubernetes Slack](https://kubernetes.slack.com/)
+- [Reddit r/kubernetes](https://www.reddit.com/r/kubernetes/)
+- [Stack Overflow - Kubernetes Tag](https://stackoverflow.com/questions/tagged/kubernetes)
+
+### Training and Certification
+- [Certified Kubernetes Administrator (CKA)](https://www.cncf.io/certification/cka/)
+- [Certified Kubernetes Application Developer (CKAD)](https://www.cncf.io/certification/ckad/)
+- [Certified Kubernetes Security Specialist (CKS)](https://www.cncf.io/certification/cks/)
+
+---
+
+## License
+
+MIT License - Feel free to use and modify for your needs.
+
+## Contributing
+
+Contributions are welcome! Please follow these guidelines:
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes with clear commit messages
+4. Test your changes thoroughly
+5. Submit a pull request with detailed description
+
+## Support
+
+For issues, questions, or contributions:
+- Open an issue on GitHub
+- Submit a pull request
+- Join community discussions
+
+---
+
+## Changelog
+
+### Version 1.0.0 (Initial Release)
+- Complete RHEL/Oracle Linux 9 setup guide
+- Production-ready HA configuration
+- Comprehensive troubleshooting section
+- Security hardening guidelines
+- Monitoring and backup procedures
+
+---
+
+## Acknowledgments
+
+Special thanks to:
+- Kubernetes community
+- CNCF projects (Flannel, containerd)
+- Red Hat and Oracle for RHEL/Oracle Linux
+- HAProxy and Keepalived teams
+- Rancher team
+
+---
+
+**Note:** This guide provides a production-ready Kubernetes HA cluster setup specifically optimized for RHEL 9 and Oracle Linux 9. Always test in a non-production environment first and adjust configurations based on your specific requirements, security policies, and compliance needs.
