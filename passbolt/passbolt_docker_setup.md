@@ -236,7 +236,7 @@ Add Passbolt domain to your hosts file:
 
 **Linux/macOS:**
 ```bash
-sudo nano /etc/hosts
+sudo vi /etc/hosts
 ```
 
 **Windows:**
@@ -299,7 +299,7 @@ To enable email notifications via Gmail:
 
 ```bash
 # Edit .env
-nano .env
+vi .env
 ```
 
 Add/update these lines:
