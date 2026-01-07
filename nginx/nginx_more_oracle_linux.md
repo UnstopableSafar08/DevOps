@@ -1,15 +1,23 @@
-# NGINX "More" Custom Build on Oracle Linux 9/10
+# NGINX "More" Custom Build for Oracle Linux 9/10
 
-This guide provides step-by-step instructions to **compile and install NGINX from source** on **Oracle Linux 9/10**, including a set of **custom dynamic and static modules** for advanced HTTP, stream, and caching functionality. It also covers **configuration, systemd setup, and permissions**.
+This repository provides a **production-ready, custom NGINX build** with **dynamic and static modules** for advanced HTTP, stream, caching, and performance features on **Oracle Linux 9/10**. The setup mirrors production-ready configurations used in high-performance environments.
 
----
+## Table of Contents
+
+* [Supported Modules](#supported-modules)
+* [Prerequisites](#prerequisites)
+* [Step 1: Download NGINX and Modules](#step-1-download-nginx-and-modules)
+* [Step 2: Compile NGINX with Custom Modules](#step-2-compile-nginx-with-custom-modules)
+* [Step 3: Configure Directories and Permissions](#step-3-configure-directories-and-permissions)
+* [Step 4: NGINX Configuration Example](#step-4-nginx-configuration-example)
+* [Step 5: Systemd Service](#step-5-systemd-service)
+* [Step 6: Verify Installation](#step-6-verify-installation)
+* [Uninstall NGINX](#uninstall-nginx)
+* [Notes](#notes)
 
 ## Supported Modules
 
-* **Dynamic Modules**:
-
-  * `ngx_http_perl_module`
-
+* **Dynamic Modules**: `ngx_http_perl_module`
 * **Custom Modules**:
 
   * ngx_headers_more
@@ -19,47 +27,26 @@ This guide provides step-by-step instructions to **compile and install NGINX fro
   * ngx_http_geoip2
   * ngx_module_vts
   * ngx_echo
-
-* **Built-in Modules**:
-
-  * SSL, HTTP/2, stub_status, proxy, gzip, stream, mail, etc.
-
----
+* **Built-in Modules**: SSL, HTTP/2, stub_status, proxy, gzip, stream, mail, etc.
 
 ## Prerequisites
 
-Update system and install build dependencies:
-
 ```bash
 sudo dnf update -y
-
-sudo dnf install -y \
-    gcc gcc-c++ make automake libtool \
-    pcre2 pcre2-devel \
-    zlib zlib-devel \
-    libxml2 libxml2-devel \
-    libxslt libxslt-devel \
-    gd gd-devel \
-    perl perl-devel perl-ExtUtils-Embed \
-    libaio libaio-devel \
-    brotli brotli-devel \
-    wget git unzip cmake
+sudo dnf install -y gcc gcc-c++ make automake libtool \
+pcre2 pcre2-devel zlib zlib-devel libxml2 libxml2-devel \
+libxslt libxslt-devel gd gd-devel perl perl-devel \
+perl-ExtUtils-Embed libaio libaio-devel brotli \
+brotli-devel wget git unzip cmake
 ```
-
-> **Note**: On Oracle Linux 9/10, the `geoip` library is replaced by `geoipupdate` or `libmaxminddb` for GeoIP2.
-
----
 
 ## Step 1: Download NGINX and Modules
 
 ```bash
 cd /usr/local/src
-
-# NGINX source
 wget http://nginx.org/download/nginx-1.26.2.tar.gz
 tar -xzvf nginx-1.26.2.tar.gz
 
-# Custom modules
 git clone https://github.com/openresty/headers-more-nginx-module.git ngx_headers_more
 git clone https://github.com/FRiCKLE/ngx_cache_purge.git ngx_cache_purge
 git clone https://github.com/pagespeed/ngx_pagespeed.git ngx_pagespeed
@@ -69,21 +56,10 @@ git clone https://github.com/vozlt/nginx-module-vts.git ngx_module_vts
 git clone https://github.com/openresty/echo-nginx-module.git ngx_echo
 ```
 
-> Optional: Download PSOL for Pagespeed:
-
-```bash
-cd ngx_pagespeed
-wget https://dl.google.com/dl/page-speed/psol/1.13.35.2-x64.tar.gz
-tar -xzvf 1.13.35.2-x64.tar.gz
-```
-
----
-
 ## Step 2: Compile NGINX with Custom Modules
 
 ```bash
 cd /usr/local/src/nginx-1.26.2
-
 ./configure \
   --prefix=/etc/nginx \
   --sbin-path=/usr/sbin/nginx \
@@ -91,10 +67,6 @@ cd /usr/local/src/nginx-1.26.2
   --pid-path=/etc/nginx/run/nginx.pid \
   --lock-path=/var/lock/nginx.lock \
   --modules-path=/usr/lib/nginx/modules \
-  --http-log-path=/var/log/nginx/access.log \
-  --error-log-path=/var/log/nginx/error.log \
-  --http-client-body-temp-path=/var/lib/nginx/body \
-  --http-proxy-temp-path=/var/lib/nginx/proxy \
   --with-compat \
   --with-http_ssl_module \
   --with-http_v2_module \
@@ -113,33 +85,21 @@ cd /usr/local/src/nginx-1.26.2
   --add-module=/usr/local/src/ngx_module_vts \
   --add-module=/usr/local/src/ngx_echo
 
-# Build and install
 make -j$(nproc)
 make install
 ```
 
----
-
 ## Step 3: Configure Directories and Permissions
 
 ```bash
-# Create user
 useradd --system --no-create-home --shell /sbin/nologin nginx
-
-# Logs and PID\mkdir -p /var/log/nginx /etc/nginx/run
-chown -R nginx:nginx /var/log/nginx /etc/nginx/run
-
-# Temp directories
-mkdir -p /var/lib/nginx/body /var/lib/nginx/proxy
-chown -R nginx:nginx /var/lib/nginx
+mkdir -p /var/log/nginx /etc/nginx/run /var/lib/nginx/body /var/lib/nginx/proxy
+chown -R nginx:nginx /var/log/nginx /etc/nginx/run /var/lib/nginx
 ```
-
----
 
 ## Step 4: NGINX Configuration Example
 
 ```nginx
-# /etc/nginx/nginx.conf
 load_module /usr/lib/nginx/modules/ngx_http_perl_module.so;
 
 user nginx;
@@ -155,7 +115,6 @@ events {
 http {
     include       mime.types;
     default_type  application/octet-stream;
-
     access_log /var/log/nginx/access.log;
     error_log /var/log/nginx/error.log warn;
 
@@ -197,12 +156,9 @@ stream {
 }
 ```
 
----
-
 ## Step 5: Systemd Service
 
 ```ini
-# /etc/systemd/system/nginx.service
 [Unit]
 Description=NGINX
 After=network.target
@@ -220,34 +176,32 @@ PrivateTmp=true
 WantedBy=multi-user.target
 ```
 
-Reload systemd and start NGINX:
-
 ```bash
 systemctl daemon-reload
 systemctl enable --now nginx
 systemctl status nginx
 ```
 
----
-
 ## Step 6: Verify Installation
 
 ```bash
-nginx -V   # Check compiled modules
-nginx -t   # Check config syntax
+nginx -V      # Check compiled modules
+nginx -t      # Check config syntax
 systemctl status nginx
 ```
 
-* Stub status: `curl http://127.0.0.1/nginx_status`
-* Check dynamic modules: `ls /usr/lib/nginx/modules/`
+## Uninstall NGINX
 
----
+```bash
+systemctl stop nginx
+systemctl disable nginx
+rm -rf /etc/nginx /usr/sbin/nginx /usr/lib/nginx/modules /var/log/nginx /var/lib/nginx /var/lock/nginx.lock /etc/systemd/system/nginx.service
+systemctl daemon-reload
+```
 
 ## Notes
 
-* Oracle Linux 9+ uses **C++20**, so some older modules may need `--std=c++11` for compatibility.
+* Only **one `default_server` per IP:port** is allowed.
+* Pagespeed requires `PSOL` precompiled library.
 * GeoIP2 requires `libmaxminddb`.
-* Pagespeed requires `PSOL` (precompiled).
-* Only **one default_server** per IP:port is allowed.
-
-This setup provides a **production-ready, custom NGINX build** with full module support, proper permissions, optimized workers, and dynamic Perl module support.
+* Ensure proper **permissions** for `/var/log/nginx`, `/etc/nginx/run`, `/var/lib/nginx`.
