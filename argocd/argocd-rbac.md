@@ -25,6 +25,13 @@ kubectl get cm argocd-cm -n argocd -o yaml > argocd-cm-backup.yaml
 kubectl get cm argocd-rbac-cm -n argocd -o yaml > argocd-rbac-cm-backup.yaml
 ```
 
+## Get the IP of the argocd
+```bash
+kubectl -n argocd get svc argocd-server
+NAME            TYPE       CLUSTER-IP     EXTERNAL-IP   PORT(S)                      AGE
+argocd-server   NodePort   10.110.43.81   <none>        80:30080/TCP,443:30545/TCP   83m
+```
+
 ## Step 1: Create User Accounts
 
 First, we'll create user accounts in ArgoCD by patching the `argocd-cm` ConfigMap.
@@ -57,7 +64,7 @@ Now we'll set passwords for each user. You need to be logged in as admin to do t
 
 **Login as admin:**
 ```bash
-argocd login localhost:30080 --username admin --password 'Adm!n@123' --insecure
+argocd login 10.110.43.81:30080 --username admin --password 'Adm!n@123' --insecure
 ```
 
 **Note:** Replace `localhost:30080` with your ArgoCD server address if different.
