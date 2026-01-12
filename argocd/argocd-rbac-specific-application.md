@@ -1,3 +1,14 @@
+# Backup argocd-cm
+kubectl get cm argocd-cm -n argocd -o yaml > argocd-cm-backup.yaml
+# Backup argocd-rbac-cm
+kubectl get cm argocd-rbac-cm -n argocd -o yaml > argocd-rbac-cm-backup.yaml
+
+# make a backup of existing configmaps.
+kubectl apply -f argocd-cm.yaml
+kubectl apply -f argocd-rbac-cm.yaml
+
+
+
 **Applying ArgoCD RBAC ConfigMap**
 
 To apply the changes, I can use the following `kubectl` command to patch the ConfigMap:
