@@ -446,7 +446,7 @@ curl http://10.10.10.7:8404/stats
 ```bash
 # Install containerd
 sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
-sudo dnf install -y containerd.io
+dnf install -y containerd.io-1.7.*
 
 # Generate default configuration
 sudo mkdir -p /etc/containerd
@@ -2935,3 +2935,4 @@ curl http://10.10.10.7:8404/stats
 /var/log/pods/                      # Pod logs
 ```
 ---
+
