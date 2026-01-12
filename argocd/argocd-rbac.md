@@ -15,6 +15,16 @@ We'll create two types of users:
 - `argocd` CLI installed
 - Admin access to ArgoCD
 
+
+# Backup argocd-cm
+```
+kubectl get cm argocd-cm -n argocd -o yaml > argocd-cm-backup.yaml
+```
+# Backup argocd-rbac-cm
+```
+kubectl get cm argocd-rbac-cm -n argocd -o yaml > argocd-rbac-cm-backup.yaml
+```
+
 ## Step 1: Create User Accounts
 
 First, we'll create user accounts in ArgoCD by patching the `argocd-cm` ConfigMap.
