@@ -773,6 +773,10 @@ sudo systemctl start docker
 
 ```bash
 # Run Rancher container
+docker run -id --restart=unless-stopped -p 88:80 -p 8443:443 --name rancher --privileged rancher/rancher:stable # this is also v2.8.1
+
+# OR
+
 sudo docker run -d --restart=unless-stopped \
   -p 80:80 -p 443:443 \
   --name rancher \
@@ -2935,5 +2939,6 @@ curl http://10.10.10.7:8404/stats
 /var/log/pods/                      # Pod logs
 ```
 ---
+
 
 
