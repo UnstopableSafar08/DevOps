@@ -228,7 +228,8 @@ apt-get install apache2-utils -y
 ### Step 1: Generate Bcrypt Hash
 
 ```bash
-htpasswd -nbBC 10 "sagar@123" | tr -d ':\n'
+# htpasswd [OPTIONS] "username" "password"
+htpasswd -nbBC 10 "" "sagar@123" | tr -d ':\n'
 ```
 
 **What this does:**
