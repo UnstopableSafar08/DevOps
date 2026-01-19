@@ -4,8 +4,9 @@ Quick guide to build a deployable WAR file using Gradle and Java 21.
 
 ## Download links:
 
-[Java-Download_link](https://bell-sw.com/pages/downloads/) </br>
-[Gradle-Download_link](https://services.gradle.org/distributions/)
+[Java_Download_link](https://bell-sw.com/pages/downloads/) </br>
+[Gradle_Download_link](https://services.gradle.org/distributions/) </br>
+[Tomcat_Download_link](https://archive.apache.org/dist/tomcat)
 
 
 ## Prerequisites Installation
@@ -201,4 +202,5 @@ hello-world/
 ./gradlew build -x test     # Build without tests
 ./gradlew war               # Generate WAR only
 ```
+
 
