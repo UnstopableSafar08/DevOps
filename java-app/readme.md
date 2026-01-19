@@ -219,7 +219,33 @@ rm -rf app/src/test
 ./gradlew war               # Generate WAR only
 ```
 
-WAR file location: `app/build/libs/hello-world.war`
+
+OUTPUT:
+```
+[root@linux hello-world]# ll
+total 24
+drwxr-xr-x 3 root root   37 Jan 19 22:20 app
+drwxr-xr-x 3 root root   47 Jan 19 20:33 gradle
+-rw-r--r-- 1 root root  194 Jan 19 20:33 gradle.properties
+-rwxr-xr-x 1 root root 8618 Jan 19 20:33 gradlew
+-rw-r--r-- 1 root root 2896 Jan 19 20:33 gradlew.bat
+-rw-r--r-- 1 root root  526 Jan 19 20:33 settings.gradle
+[root@linux hello-world]# 
+[root@linux hello-world]# ./gradlew build
+Reusing configuration cache.
+
+BUILD SUCCESSFUL in 1s
+2 actionable tasks: 2 executed
+Configuration cache entry reused.
+[root@linux hello-world]# 
+[root@linux hello-world]# ll app/build/libs/
+total 8
+-rw-r--r-- 1 root root 261 Jan 19 22:21 app-1.0.0.jar
+-rw-r--r-- 1 root root 889 Jan 19 22:21 hello-world.war
+[root@linux hello-world]# 
+``` 
+
+**WAR file location: `app/build/libs/hello-world.war`**
 
 ## Step 8: Deploy to Tomcat
 
@@ -305,6 +331,7 @@ OUTPUT:
 
 # After Deploy on the Tomcat
 ![Outoput](https://github.com/UnstopableSafar08/DevOps/blob/main/java-app/hello-world.png)
+
 
 
 
