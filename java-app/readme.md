@@ -1,6 +1,11 @@
 # Creating a Java Hello World WAR for Tomcat with Gradle
 
-Quick guide to build a deployable WAR file using Gradle and Java 21.
+Quick guide to build a `deployable WAR` file using Gradle and Java 21.
+
+**Tools**
+  1. Java : `21 Lts`
+  2. Gradle : `9.3.0`
+  3. Tomcat : `11.0.15`
 
 ## Download links:
 
@@ -369,6 +374,7 @@ OUTPUT:
 
 # After Deploy on the Tomcat
 ![Outoput](https://github.com/UnstopableSafar08/DevOps/blob/main/java-app/hello-world.png)
+
 
 
 
