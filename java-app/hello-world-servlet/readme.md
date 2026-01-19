@@ -243,3 +243,7 @@ hello-world/
 
 - For Tomcat 9.x or earlier, use `javax.servlet:javax.servlet-api:4.0.1` instead of Jakarta
 - Default test files can be deleted if not needed
+
+
+OUTPUT:
+![hello-world-servlet.png](https://github.com/UnstopableSafar08/DevOps/blob/main/java-app/hello-world-servlet/hello-world-servlet.png)
