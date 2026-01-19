@@ -277,6 +277,44 @@ hello-world/
 ```
 
 
+Folder Structure:
+```
+[root@linux hello-world]# tree
+.
+├── app
+│   ├── build
+│   │   ├── libs
+│   │   │   ├── app-1.0.0.jar
+│   │   │   └── hello-world.war
+│   │   └── tmp
+│   │       ├── jar
+│   │       │   └── MANIFEST.MF
+│   │       └── war
+│   │           └── MANIFEST.MF
+│   ├── build.gradle
+│   └── src
+│       └── main
+│           ├── java
+│           │   └── com
+│           │       └── example
+│           ├── resources
+│           └── webapp
+│               ├── index.html
+│               └── WEB-INF
+│                   └── web.xml
+├── gradle
+│   ├── libs.versions.toml
+│   └── wrapper
+│       ├── gradle-wrapper.jar
+│       └── gradle-wrapper.properties
+├── gradle.properties
+├── gradlew
+├── gradlew.bat
+└── settings.gradle
+
+16 directories, 14 files
+```
+
 # Download and Install the Tomcat 11.x
 ```bash
 cd /opt
@@ -331,6 +369,7 @@ OUTPUT:
 
 # After Deploy on the Tomcat
 ![Outoput](https://github.com/UnstopableSafar08/DevOps/blob/main/java-app/hello-world.png)
+
 
 
 
