@@ -74,6 +74,8 @@ gradle -version
 ## Step 1: Initialize Project
 
 ```bash
+mkdir -p /opt/hello-world
+cd /opt/hello-world
 gradle init --type java-application --dsl groovy --project-name hello-world --package com.example
 ```
 When prompted:
@@ -209,5 +211,60 @@ hello-world/
 ./gradlew war               # Generate WAR only
 ```
 
+
+# Download and Install the Tomcat 11.x
+```bash
+cd /opt
+wget https://archive.apache.org/dist/tomcat/tomcat-11/v11.0.15/bin/apache-tomcat-11.0.15.tar.gz
+tar xvzf apache-tomcat-11.0.15.tar.gz 
+mv apache-tomcat-11.0.15 tomcat
+rm -rf tomcat/webapps/*
+rm -rf apache-tomcat-11.0.15.tar.gz 
+```
+
+## Copy the war file to the webapps
+```bash
+cd /opt
+cp hello-world/app/build/libs/hello-world.war tomcat/webapps/.
+
+# Stop and Start the Tomcat from binary
+./tomcat/bin/shutdown.sh 
+./tomcat/bin/startup.sh 
+
+# Check the logs and tomcat port.
+tail -f ../tomcat/logs/catalina.out 
+ss -lnt
+```
+
+## If the firewall is enabled, add firewall rule
+```bash
+firewall-cmd --permanent -add-port=8080/tcp
+firewall-cmd --reload
+```
+
+## Check the localhost response.
+```bash
+curl http://localhost:8080/hello-world/
+```
+
+OUTPUT:
+```
+[root@linux opt]# curl http://localhost:8080/hello-world/
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Hello World</title>
+</head>
+<body>
+    <h1>Hello World</h1>
+</body>
+</html>
+[root@linux opt]#
+```
+
+
+# After Deploy on the Tomcat
+![Outoput](https://github.com/UnstopableSafar08/DevOps/blob/main/java-app/hello-world.png)
 
 
