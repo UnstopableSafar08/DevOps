@@ -85,6 +85,42 @@ When prompted:
 - Test framework: `1 (JUnit 4)`
 - Generate build using new APIs: `no`
 
+OUTPUT:
+```
+[root@linux opt]# cd hello-world
+[root@linux hello-world]# ll
+total 0
+[root@linux hello-world]# 
+[root@linux hello-world]# 
+[root@linux hello-world]# 
+[root@linux hello-world]# mkdir -p /opt/hello-world
+cd /opt/hello-world
+gradle init --type java-application --dsl groovy --project-name hello-world --package com.example
+
+Enter target Java version (min: 7, default: 21): 21
+
+Select application structure:
+  1: Single application project
+  2: Application and library project
+Enter selection (default: Single application project) [1..2] 1
+
+Select test framework:
+  1: JUnit 4
+  2: TestNG
+  3: Spock
+  4: JUnit Jupiter
+Enter selection (default: JUnit Jupiter) [1..4] 1
+
+Generate build using new APIs and behavior (some features may change in the next minor release)? (default: no) [yes, no] 
+
+
+> Task :init
+Learn more about Gradle by exploring our Samples at https://docs.gradle.org/9.3.0/samples/sample_building_java_applications.html
+
+BUILD SUCCESSFUL in 23s
+1 actionable task: 1 executed
+```
+
 ## Step 2: Configure build.gradle
 
 Navigate to `app/build.gradle` and replace with:
@@ -178,6 +214,9 @@ rm -rf app/src/test
 
 ```bash
 ./gradlew build
+./gradlew clean build       # Clean and rebuild
+./gradlew build -x test     # Build without tests
+./gradlew war               # Generate WAR only
 ```
 
 WAR file location: `app/build/libs/hello-world.war`
@@ -266,5 +305,6 @@ OUTPUT:
 
 # After Deploy on the Tomcat
 ![Outoput](https://github.com/UnstopableSafar08/DevOps/blob/main/java-app/hello-world.png)
+
 
 
