@@ -76,6 +76,12 @@ gradle -version
 ```bash
 gradle init --type java-application --dsl groovy --project-name hello-world --package com.example
 ```
+When prompted:
+- Continue? `yes`
+- Target Java version: `21`
+- Application structure: `1 (Single application project)`
+- Test framework: `1 (JUnit 4)`
+- Generate build using new APIs: `no`
 
 ## Step 2: Configure build.gradle
 
@@ -202,5 +208,6 @@ hello-world/
 ./gradlew build -x test     # Build without tests
 ./gradlew war               # Generate WAR only
 ```
+
 
 
