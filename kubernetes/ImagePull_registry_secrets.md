@@ -9,7 +9,7 @@ Use **Docker Hub credentials** (username + password or access token).
 ### Recommended: Use Docker Hub Access Token
 
 Generate a token in Docker Hub
-→ Account Settings → Security → New Access Token
+→ `Account Settings` → `Security` → `New Access Token`
 
 ### Command
 
@@ -25,6 +25,7 @@ kubectl create secret docker-registry dockerhub-secret \
 ### Example
 
 ```bash
+# for a default namespace
 kubectl create secret docker-registry dockerhub-secret \
   --docker-server=https://index.docker.io/v1/ \
   --docker-username=sagarmalla \
@@ -84,9 +85,20 @@ kubectl apply -f deployment.yaml
 If **many deployments** pull from Docker Hub, attach once.
 
 ### Patch default ServiceAccount
-
+Backup the Service Account yaml file.
 ```bash
+kubectl get serviceaccount default -n <namespace> -o yaml > default-sa-backup.yaml
+```
+
+Patching a Service Account yaml.
+```bash
+# for default namespace
 kubectl patch serviceaccount default \
+  -p '{"imagePullSecrets":[{"name":"dockerhub-secret"}]}'
+
+# specific namespace.
+kubectl patch serviceaccount default \
+  -n <namespace> \
   -p '{"imagePullSecrets":[{"name":"dockerhub-secret"}]}'
 ```
 
