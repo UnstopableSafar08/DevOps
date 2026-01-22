@@ -65,6 +65,12 @@ root       soft    nofile    100000
 root       hard    nofile    100000
 root       soft    nproc     10000
 root       hard    nproc     10000
+
+# Haproxy for user (worker user)
+haproxy      soft    nofile    100000
+haproxy      hard    nofile    100000
+haproxy      soft    nproc     10000
+haproxy      hard    nproc     10000
 ```
 
 > **Note:** These limits are applied at login via PAM. Services managed by systemd will not use these unless PAM is explicitly configured. HAProxy and Keepalived run as root, so their limits come from the root user configuration and systemd overrides.
@@ -118,7 +124,7 @@ Ensure HAProxy's `maxconn` parameter in `/etc/haproxy/haproxy.cfg` aligns with t
 
 ### Apache Configuration
 
-**File:** `/etc/systemd/system/httpd.service.d/limits.conf`
+**File:** `vi /etc/systemd/system/httpd.service.d/limits.conf`
 
 ```ini
 [Service]
@@ -143,7 +149,7 @@ Adjust these values based on your Apache MPM (prefork/worker/event) configuratio
 
 ### Keepalived Configuration
 
-**File:** `/etc/systemd/system/keepalived.service.d/limits.conf`
+**File:** `vi /etc/systemd/system/keepalived.service.d/limits.conf`
 
 ```ini
 [Service]
