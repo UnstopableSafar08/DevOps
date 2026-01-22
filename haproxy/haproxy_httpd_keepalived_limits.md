@@ -84,10 +84,16 @@ root       hard    nproc     10000
 > **Note:** HAProxy and Keepalived run their master processes as root (for privileged port binding and VRRP). Worker processes may drop to unprivileged users, but systemd limits apply to the service as a whole.
 
 ---
+### Create a Systemd Limits path.
+```bash
+mkdir -p /etc/systemd/system/haproxy.service.d/
+mkdir -p /etc/systemd/system/httpd.service.d/
+mkdir -p /etc/systemd/system/keepalived.service.d/
+```
 
 ### HAProxy Configuration
 
-**File:** `/etc/systemd/system/haproxy.service.d/limits.conf`
+**File:** `vi /etc/systemd/system/haproxy.service.d/limits.conf`
 
 ```ini
 [Service]
