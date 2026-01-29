@@ -55,6 +55,12 @@ if $programname == 'haproxy' then stop
 
 ## 4. Logrotate Configuration
 
+Creating Logs path;
+```bash
+mkdir -p /var/log/haproxy
+touch /var/log/haproxy/access.log /var/log/haproxy/error.log /var/log/haproxy/status.log
+```
+
 **File Path:** `/etc/logrotate.d/haproxy`
 
 Handles daily rotation, compression, and specific naming conventions.
