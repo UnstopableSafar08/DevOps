@@ -59,6 +59,9 @@ Creating Logs path;
 ```bash
 mkdir -p /var/log/haproxy
 touch /var/log/haproxy/access.log /var/log/haproxy/error.log /var/log/haproxy/status.log
+
+sudo chown root:root /var/log/haproxy/*.log
+sudo chmod 644 /var/log/haproxy/*.log
 ```
 
 **File Path:** `/etc/logrotate.d/haproxy`
