@@ -94,7 +94,7 @@ kafka-production-guide/
 - **Size:** ~500 lines
 - **How to use:** `sudo ./install-kafka.sh <node_number> <cluster_uuid>`
 - **What it does:**
-  1. Installs Java 17
+  1. Installs Java 21 LTS
   2. Optimizes system settings
   3. Downloads Kafka
   4. Configures Kafka
@@ -227,4 +227,4 @@ Suggested update frequency: **Quarterly review**
 
 **Last Updated:** January 31, 2026  
 **Repository Version:** 1.0  
-**Kafka Version:** 3.9.1
+**Kafka Version:** 4.1.1

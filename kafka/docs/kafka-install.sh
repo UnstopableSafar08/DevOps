@@ -1,6 +1,6 @@
 #!/bin/bash
 #############################################################################
-# Kafka 3.9.1 KRaft Production Cluster Setup Script
+# Kafka 4.1.1 KRaft Production Cluster Setup Script
 # For RHEL 9.x / Oracle Linux 9.x / Rocky Linux 9.x
 #
 # Usage: 
@@ -22,7 +22,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Configuration
-KAFKA_VERSION="3.9.1"
+KAFKA_VERSION="4.1.1"
 SCALA_VERSION="2.13"
 KAFKA_USER="kafka"
 KAFKA_HOME="/opt/kafka"
@@ -75,12 +75,22 @@ echo -e "${GREEN}[1/10] Installing prerequisites...${NC}"
 # Update hostname
 hostnamectl set-hostname $NODE_NAME
 
-# Install Java 17
-dnf install -y java-17-openjdk-devel wget tar
+# Install Prerequisites
+echo -e "${GREEN}Installing prerequisites (wget, tar)...${NC}"
+dnf install -y wget tar > /dev/null 2>&1
+
+# Install Java 21 LTS
+echo -e "${GREEN}Installing BellSoft JDK 21 LTS...${NC}"
+cd /opt
+wget -q https://download.bell-sw.com/java/21.0.10+10/bellsoft-jdk21.0.10+10-linux-amd64.tar.gz
+tar -xzf bellsoft-jdk21.0.10+10-linux-amd64.tar.gz
+mv /opt/jdk-21.0.10+10 /opt/jdk-21.0.10
+export JAVA_HOME=/opt/jdk-21.0.10
+export PATH=$JAVA_HOME/bin:$PATH
 
 # Verify Java
 java -version
-export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
+export JAVA_HOME=/opt/jdk-21.0.10
 
 #############################################################################
 # STEP 2: OS Tuning
@@ -265,7 +275,7 @@ After=network.target
 Type=simple
 User=$KAFKA_USER
 Group=$KAFKA_USER
-Environment="JAVA_HOME=/usr/lib/jvm/java-17-openjdk"
+Environment="JAVA_HOME=/opt/jdk-21.0.10"
 Environment="KAFKA_HEAP_OPTS=-Xms6g -Xmx6g"
 Environment="KAFKA_JVM_PERFORMANCE_OPTS=-XX:+UseG1GC -XX:MaxGCPauseMillis=20 -XX:InitiatingHeapOccupancyPercent=35 -XX:G1HeapRegionSize=16M -XX:MinMetaspaceFreeRatio=50 -XX:MaxMetaspaceFreeRatio=80"
 Environment="LOG_DIR=$LOG_DIR"

@@ -1,7 +1,7 @@
-# Apache Kafka 3.9.1 Production Setup Guide
+# Apache Kafka 4.1.1 Production Setup Guide
 ## Complete Step-by-Step Guide for Financial Transactions
 
-[![Kafka Version](https://img.shields.io/badge/Kafka-3.9.1-brightgreen)](https://kafka.apache.org/)
+[![Kafka Version](https://img.shields.io/badge/Kafka-4.1.1-brightgreen)](https://kafka.apache.org/)
 [![Architecture](https://img.shields.io/badge/Architecture-KRaft-blue)](https://kafka.apache.org/documentation/#kraft)
 [![Java](https://img.shields.io/badge/Java-17-orange)](https://openjdk.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
@@ -30,7 +30,7 @@
 
 ## What is This Guide?
 
-This guide helps you set up **Apache Kafka 3.9.1** with **KRaft** (no ZooKeeper) for handling **financial transactions** in a production environment.
+This guide helps you set up **Apache Kafka 4.1.1** with **KRaft** (no ZooKeeper) for handling **financial transactions** in a production environment.
 
 ### Who This Guide Is For
 - System administrators deploying Kafka
@@ -110,8 +110,8 @@ Think of this like buying a car - you need the right engine for highway driving:
 | Software | Version | What It Does |
 |----------|---------|--------------|
 | **Operating System** | RHEL 9 / Oracle Linux 9 / Rocky Linux 9 | The foundation (like Windows, but for servers) |
-| **Java** | Java 17 | The engine that runs Kafka |
-| **Kafka** | 3.9.1 | The actual Kafka software |
+| **Java** | Java 21 LTS | The engine that runs Kafka |
+| **Kafka** | 4.1.1 | The actual Kafka software |
 
 ### Network Requirements
 
@@ -286,7 +286,7 @@ ping -c 3 kafka2
 
 ### Step 2: Install Java (15 minutes)
 
-**What we're doing:** Installing Java 17, which Kafka needs to run.
+**What we're doing:** Installing Java 21 LTS, which Kafka needs to run.
 
 **Think of Java as:** The engine that makes Kafka work (like a car needs an engine).
 
@@ -294,7 +294,12 @@ ping -c 3 kafka2
 
 ```bash
 # On ALL 3 servers
-sudo dnf install -y java-17-openjdk-devel
+cd /opt
+wget https://download.bell-sw.com/java/21.0.10+10/bellsoft-jdk21.0.10+10-linux-amd64.tar.gz
+tar -xzf bellsoft-jdk21.0.10+10-linux-amd64.tar.gz
+mv /opt/jdk-21.0.10+10 /opt/jdk-21.0.10
+export JAVA_HOME=/opt/jdk-21.0.10
+export PATH=$JAVA_HOME/bin:$PATH
 ```
 
 **What this does:** Downloads and installs Java from the internet.
@@ -307,7 +312,7 @@ java -version
 
 **What to expect:** Should show something like:
 ```
-openjdk version "17.0.x"
+openjdk version "21.0.x"
 ```
 
 #### 2.3 Set JAVA_HOME
@@ -316,7 +321,7 @@ This tells the system where Java is installed.
 
 ```bash
 # Add to ~/.bashrc on ALL servers
-echo 'export JAVA_HOME=/usr/lib/jvm/java-17-openjdk' >> ~/.bashrc
+echo 'export JAVA_HOME=/opt/jdk-21.0.10' >> ~/.bashrc
 echo 'export PATH=$JAVA_HOME/bin:$PATH' >> ~/.bashrc
 source ~/.bashrc
 
@@ -324,7 +329,7 @@ source ~/.bashrc
 echo $JAVA_HOME
 ```
 
-**What to expect:** Should print `/usr/lib/jvm/java-17-openjdk`
+**What to expect:** Should print `/opt/jdk-21.0.10`
 
 ---
 
@@ -348,7 +353,7 @@ sudo useradd -r -s /bin/bash kafka
 ```bash
 # On ALL 3 servers
 cd /tmp
-sudo wget https://downloads.apache.org/kafka/3.9.1/kafka_2.13-3.9.1.tgz
+sudo wget https://downloads.apache.org/kafka/4.1.1/kafka_2.13-4.1.1.tgz
 ```
 
 **What this does:** Downloads Kafka from the official Apache website (like downloading software from the internet).
@@ -361,13 +366,13 @@ This makes sure the download wasn't corrupted.
 
 ```bash
 # Download checksum file
-sudo wget https://downloads.apache.org/kafka/3.9.1/kafka_2.13-3.9.1.tgz.sha512
+sudo wget https://downloads.apache.org/kafka/4.1.1/kafka_2.13-4.1.1.tgz.sha512
 
 # Verify
-sha512sum -c kafka_2.13-3.9.1.tgz.sha512
+sha512sum -c kafka_2.13-4.1.1.tgz.sha512
 ```
 
-**What to expect:** Should say `kafka_2.13-3.9.1.tgz: OK`
+**What to expect:** Should say `kafka_2.13-4.1.1.tgz: OK`
 
 **If it fails:** Download again (file might be corrupted).
 
@@ -375,8 +380,8 @@ sha512sum -c kafka_2.13-3.9.1.tgz.sha512
 
 ```bash
 # On ALL 3 servers
-sudo tar -xzf kafka_2.13-3.9.1.tgz -C /opt/
-sudo mv /opt/kafka_2.13-3.9.1 /opt/kafka
+sudo tar -xzf kafka_2.13-4.1.1.tgz -C /opt/
+sudo mv /opt/kafka_2.13-4.1.1 /opt/kafka
 sudo chown -R kafka:kafka /opt/kafka
 ```
 
@@ -722,7 +727,7 @@ After=network.target
 Type=simple
 User=kafka
 Group=kafka
-Environment="JAVA_HOME=/usr/lib/jvm/java-17-openjdk"
+Environment="JAVA_HOME=/opt/jdk-21.0.10"
 Environment="KAFKA_HEAP_OPTS=-Xms6g -Xmx6g"
 Environment="KAFKA_JVM_PERFORMANCE_OPTS=-XX:+UseG1GC -XX:MaxGCPauseMillis=20 -XX:InitiatingHeapOccupancyPercent=35 -XX:G1HeapRegionSize=16M"
 Environment="LOG_DIR=/var/log/kafka"
@@ -980,5 +985,5 @@ This guide is provided under the Apache License 2.0.
 ---
 
 **Last Updated:** January 31, 2026  
-**Kafka Version:** 3.9.1  
+**Kafka Version:** 4.1.1  
 **Author:** Production Infrastructure Team

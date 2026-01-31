@@ -45,6 +45,6 @@ Everything you need is here!
 
 ---
 
-**Kafka Version:** 3.9.1  
+**Kafka Version:** 4.1.1  
 **Architecture:** KRaft (No ZooKeeper)  
 **Last Updated:** January 31, 2026

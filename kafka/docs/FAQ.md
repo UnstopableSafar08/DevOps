@@ -976,5 +976,5 @@ See: [Disaster Recovery Guide](DISASTER_RECOVERY.md) for complete setup.
 ---
 
 **Last Updated:** January 31, 2026  
-**Kafka Version:** 3.9.1  
+**Kafka Version:** 4.1.1  
 **Maintained by:** Production Infrastructure Team

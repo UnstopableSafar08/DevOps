@@ -1,5 +1,5 @@
 # Step-by-Step Installation Guide
-## Complete Kafka 3.9.1 KRaft Cluster Setup
+## Complete Kafka 4.1.1 KRaft Cluster Setup
 
 ---
 
@@ -198,19 +198,24 @@ ls -la /var/log/kafka/
 ### Why This Matters
 Kafka is written in Java, so we need Java installed to run it.
 
-### Step 2.1: Install Java 17
+### Step 2.1: Install Java 21 LTS
 
 **What we're doing:** Installing the Java Development Kit (JDK) version 17.
 
 **Run on ALL 3 servers:**
 ```bash
-sudo dnf install -y java-17-openjdk-devel
+cd /opt
+wget https://download.bell-sw.com/java/21.0.10+10/bellsoft-jdk21.0.10+10-linux-amd64.tar.gz
+tar -xzf bellsoft-jdk21.0.10+10-linux-amd64.tar.gz
+mv /opt/jdk-21.0.10+10 /opt/jdk-21.0.10
+export JAVA_HOME=/opt/jdk-21.0.10
+export PATH=$JAVA_HOME/bin:$PATH
 ```
 
 **Explanation:**
 - `dnf` = Package manager for RHEL 9
 - `-y` = Automatically answer "yes" to prompts
-- `java-17-openjdk-devel` = Java 17 with development tools
+- `jdk-21.0.10-devel` = Java 21 LTS with development tools
 
 **This will take:** ~2-3 minutes per server
 
@@ -221,7 +226,7 @@ java -version
 
 **Expected output:**
 ```
-openjdk version "17.0.x" xxxx-xx-xx
+openjdk version "21.0.x" xxxx-xx-xx
 OpenJDK Runtime Environment...
 OpenJDK 64-Bit Server VM...
 ```
@@ -234,7 +239,7 @@ OpenJDK 64-Bit Server VM...
 
 **Run on ALL 3 servers:**
 ```bash
-echo 'export JAVA_HOME=/usr/lib/jvm/java-17-openjdk' | sudo tee -a /etc/profile.d/java.sh
+echo 'export JAVA_HOME=/opt/jdk-21.0.10' | sudo tee -a /etc/profile.d/java.sh
 echo 'export PATH=$JAVA_HOME/bin:$PATH' | sudo tee -a /etc/profile.d/java.sh
 source /etc/profile.d/java.sh
 ```
@@ -247,7 +252,7 @@ source /etc/profile.d/java.sh
 **Verify:**
 ```bash
 echo $JAVA_HOME
-# Should output: /usr/lib/jvm/java-17-openjdk
+# Should output: /opt/jdk-21.0.10
 ```
 
 ---
@@ -429,16 +434,16 @@ We need the Kafka software package.
 # Go to /tmp directory
 cd /tmp
 
-# Download Kafka 3.9.1
-sudo wget https://downloads.apache.org/kafka/3.9.1/kafka_2.13-3.9.1.tgz
+# Download Kafka 4.1.1
+sudo wget https://downloads.apache.org/kafka/4.1.1/kafka_2.13-4.1.1.tgz
 
 # Download checksum for verification
-sudo wget https://downloads.apache.org/kafka/3.9.1/kafka_2.13-3.9.1.tgz.sha512
+sudo wget https://downloads.apache.org/kafka/4.1.1/kafka_2.13-4.1.1.tgz.sha512
 ```
 
 **Explanation:**
 - `wget` = Download files from internet
-- `kafka_2.13-3.9.1.tgz` = Kafka 3.9.1 with Scala 2.13
+- `kafka_2.13-4.1.1.tgz` = Kafka 4.1.1 with Scala 2.13
 - `.sha512` = Checksum file (for verifying download integrity)
 
 **This will take:** ~2-3 minutes (depending on internet speed)
@@ -452,12 +457,12 @@ sudo wget https://downloads.apache.org/kafka/3.9.1/kafka_2.13-3.9.1.tgz.sha512
 **On Server 1:**
 ```bash
 cd /tmp
-sha512sum -c kafka_2.13-3.9.1.tgz.sha512
+sha512sum -c kafka_2.13-4.1.1.tgz.sha512
 ```
 
 **Expected output:**
 ```
-kafka_2.13-3.9.1.tgz: OK
+kafka_2.13-4.1.1.tgz: OK
 ```
 
 **Why:** Verifying the checksum ensures the file wasn't corrupted during download.
@@ -473,10 +478,10 @@ kafka_2.13-3.9.1.tgz: OK
 **On Server 1:**
 ```bash
 # Extract the archive
-sudo tar -xzf kafka_2.13-3.9.1.tgz -C /opt/
+sudo tar -xzf kafka_2.13-4.1.1.tgz -C /opt/
 
 # Rename to simpler name
-sudo mv /opt/kafka_2.13-3.9.1 /opt/kafka
+sudo mv /opt/kafka_2.13-4.1.1 /opt/kafka
 
 # Set ownership to kafka user
 sudo chown -R kafka:kafka /opt/kafka
@@ -830,7 +835,7 @@ User=kafka
 Group=kafka
 
 # Java Settings
-Environment="JAVA_HOME=/usr/lib/jvm/java-17-openjdk"
+Environment="JAVA_HOME=/opt/jdk-21.0.10"
 
 # Heap Size: 6 GB (adjust based on your RAM)
 Environment="KAFKA_HEAP_OPTS=-Xms6g -Xmx6g"

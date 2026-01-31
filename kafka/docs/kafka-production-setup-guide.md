@@ -5,9 +5,9 @@
 
 ## 1. RECOMMENDED KAFKA VERSION FOR PRODUCTION (Financial Transactions)
 
-### **Recommended Version: Apache Kafka 3.9.1 (Latest Stable)**
+### **Recommended Version: Apache Kafka 4.1.1 (Latest Stable)**
 
-**Why Kafka 3.9.1:**
+**Why Kafka 4.1.1:**
 - **Last version supporting both ZooKeeper and KRaft** (bridge release)
 - Production-ready KRaft mode (since 3.3.0)
 - Extended support: Minimum 2 years from release date
@@ -42,19 +42,24 @@
 | Kafka Version | Java Version Required | Notes |
 |---------------|----------------------|-------|
 | **3.9.x** | **Java 11 (minimum)** | Clients/Streams: Java 11+ |
-| **3.9.x** | **Java 17 (recommended for brokers)** | Brokers/Tools: Java 17+ |
+| **3.9.x** | **Java 21 LTS (recommended for brokers)** | Brokers/Tools: Java 21 LTS+ |
 | **3.9.x** | **Java 21 (supported)** | LTS version, future-proof |
 
 **Recommended Java Installation:**
 ```bash
 # Install OpenJDK 17 (Recommended for brokers)
-sudo dnf install -y java-17-openjdk-devel
+cd /opt
+wget https://download.bell-sw.com/java/21.0.10+10/bellsoft-jdk21.0.10+10-linux-amd64.tar.gz
+tar -xzf bellsoft-jdk21.0.10+10-linux-amd64.tar.gz
+mv /opt/jdk-21.0.10+10 /opt/jdk-21.0.10
+export JAVA_HOME=/opt/jdk-21.0.10
+export PATH=$JAVA_HOME/bin:$PATH
 
 # Verify installation
 java -version
 
 # Set JAVA_HOME
-echo 'export JAVA_HOME=/usr/lib/jvm/java-17-openjdk' >> ~/.bashrc
+echo 'export JAVA_HOME=/opt/jdk-21.0.10' >> ~/.bashrc
 echo 'export PATH=$JAVA_HOME/bin:$PATH' >> ~/.bashrc
 source ~/.bashrc
 ```
@@ -209,17 +214,17 @@ sudo firewall-cmd --reload
 # Create Kafka user
 sudo useradd -r -s /bin/bash kafka
 
-# Download Kafka 3.9.1
+# Download Kafka 4.1.1
 cd /opt
-sudo wget https://downloads.apache.org/kafka/3.9.1/kafka_2.13-3.9.1.tgz
+sudo wget https://downloads.apache.org/kafka/4.1.1/kafka_2.13-4.1.1.tgz
 
 # Verify checksum
-sudo wget https://downloads.apache.org/kafka/3.9.1/kafka_2.13-3.9.1.tgz.sha512
-sha512sum -c kafka_2.13-3.9.1.tgz.sha512
+sudo wget https://downloads.apache.org/kafka/4.1.1/kafka_2.13-4.1.1.tgz.sha512
+sha512sum -c kafka_2.13-4.1.1.tgz.sha512
 
 # Extract
-sudo tar -xzf kafka_2.13-3.9.1.tgz
-sudo mv kafka_2.13-3.9.1 /opt/kafka
+sudo tar -xzf kafka_2.13-4.1.1.tgz
+sudo mv kafka_2.13-4.1.1 /opt/kafka
 sudo chown -R kafka:kafka /opt/kafka
 
 # Create data directories
@@ -376,7 +381,7 @@ After=network.target
 Type=simple
 User=kafka
 Group=kafka
-Environment="JAVA_HOME=/usr/lib/jvm/java-17-openjdk"
+Environment="JAVA_HOME=/opt/jdk-21.0.10"
 Environment="KAFKA_HEAP_OPTS=-Xms6g -Xmx6g"
 Environment="KAFKA_JVM_PERFORMANCE_OPTS=-XX:+UseG1GC -XX:MaxGCPauseMillis=20 -XX:InitiatingHeapOccupancyPercent=35 -XX:G1HeapRegionSize=16M -XX:MinMetaspaceFreeRatio=50 -XX:MaxMetaspaceFreeRatio=80"
 Environment="LOG_DIR=/var/log/kafka"
@@ -878,8 +883,8 @@ sudo systemctl start kafka  # on kafka1
 
 - [ ] OS tuning completed (limits, sysctl, swap disabled)
 - [ ] Firewall rules configured
-- [ ] Java 17 installed and configured
-- [ ] Kafka 3.9.1 installed on all 3 nodes
+- [ ] Java 21 LTS installed and configured
+- [ ] Kafka 4.1.1 installed on all 3 nodes
 - [ ] Cluster formatted with same UUID
 - [ ] `offsets.topic.replication.factor=3` configured
 - [ ] Systemd services enabled and started
@@ -897,7 +902,7 @@ sudo systemctl start kafka  # on kafka1
 
 ### **Java Support Matrix**
 
-| Kafka Version | Java 11 | Java 17 | Java 21 |
+| Kafka Version | Java 11 | Java 21 LTS | Java 21 |
 |---------------|---------|---------|---------|
 | 3.9.x |  (Clients) |  (All) |  (All) |
 | 4.0.x |  (Clients) |  (All) |  (All) |
@@ -926,5 +931,5 @@ sudo systemctl start kafka  # on kafka1
 
 **Document Version:** 1.0  
 **Last Updated:** January 31, 2026  
-**Kafka Version:** 3.9.1  
+**Kafka Version:** 4.1.1  
 **Operating System:** RHEL 9.x / Oracle Linux 9.x / Rocky Linux 9.x

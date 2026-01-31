@@ -1,14 +1,14 @@
-# Kafka 3.9.1 Production Setup - Quick Reference Card
+# Kafka 4.1.1 Production Setup - Quick Reference Card
 
 ## RECOMMENDED CONFIGURATION
 
 ### Version Information
-- **Kafka Version:** 3.9.1 (Latest Stable)
-- **Java Version:** Java 17 (Recommended for brokers)
+- **Kafka Version:** 4.1.1 (Latest Stable)
+- **Java Version:** Java 21 LTS (Recommended for brokers)
 - **Scala Version:** 2.13
 - **Mode:** KRaft (No ZooKeeper)
 
-### Why Kafka 3.9.1?
+### Why Kafka 4.1.1?
  Last version supporting both ZooKeeper and KRaft (bridge release)  
  Production-ready KRaft since 3.3.0  
  Extended support: Minimum 2 years  
@@ -390,4 +390,4 @@ Service: /etc/systemd/system/kafka.service
 
 **Quick Reference Version:** 1.0  
 **Last Updated:** January 31, 2026  
-**Kafka Version:** 3.9.1 (Production-Ready KRaft)
+**Kafka Version:** 4.1.1 (Production-Ready KRaft)

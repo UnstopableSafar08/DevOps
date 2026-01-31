@@ -697,5 +697,5 @@ Want to learn more?
 ---
 
 *Last Updated: January 31, 2026*  
-*Kafka Version: 3.9.1*  
+*Kafka Version: 4.1.1*  
 *Written for: Non-technical readers*

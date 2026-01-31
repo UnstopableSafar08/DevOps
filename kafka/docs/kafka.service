@@ -43,7 +43,7 @@ Group=kafka
 
 # Where Java is installed
 # Kafka needs Java to run
-Environment="JAVA_HOME=/usr/lib/jvm/java-17-openjdk"
+Environment="JAVA_HOME=/opt/jdk-21.0.10"
 
 #################### MEMORY CONFIGURATION ####################
 

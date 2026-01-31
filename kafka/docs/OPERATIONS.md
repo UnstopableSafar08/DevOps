@@ -697,5 +697,5 @@ If you need help:
 ---
 
 **Last Updated:** January 31, 2026  
-**Kafka Version:** 3.9.1  
+**Kafka Version:** 4.1.1  
 **Difficulty:** Beginner-friendly

@@ -75,9 +75,9 @@ ssh root@192.168.1.101
 # Create temporary Kafka directory to get UUID generator
 mkdir -p /tmp/kafka-temp
 cd /tmp/kafka-temp
-wget https://downloads.apache.org/kafka/3.9.1/kafka_2.13-3.9.1.tgz
-tar -xzf kafka_2.13-3.9.1.tgz
-cd kafka_2.13-3.9.1
+wget https://downloads.apache.org/kafka/4.1.1/kafka_2.13-4.1.1.tgz
+tar -xzf kafka_2.13-4.1.1.tgz
+cd kafka_2.13-4.1.1
 
 # Generate UUID
 ./bin/kafka-storage.sh random-uuid
@@ -379,5 +379,5 @@ After following this guide, you should have:
 ---
 
 **Last Updated:** January 31, 2026  
-**Kafka Version:** 3.9.1  
+**Kafka Version:** 4.1.1  
 **Estimated Time:** 30-40 minutes

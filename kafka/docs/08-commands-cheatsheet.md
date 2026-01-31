@@ -637,5 +637,5 @@ journalctl -u kafka -n 200
 ---
 
 *Last Updated: January 31, 2026*  
-*Kafka Version: 3.9.1*  
+*Kafka Version: 4.1.1*  
 *For: Production Operations*

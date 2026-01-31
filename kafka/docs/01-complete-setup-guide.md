@@ -421,13 +421,18 @@ Installing Java - the programming language Kafka is written in.
 
 Kafka is built with Java, so Java must be installed first - like needing electricity before turning on lights.
 
-### Step 2.1: Install Java 17
+### Step 2.1: Install Java 21 LTS
 
 **How:**
 
 ```bash
 # Install Java
-sudo dnf install -y java-17-openjdk-devel
+cd /opt
+wget https://download.bell-sw.com/java/21.0.10+10/bellsoft-jdk21.0.10+10-linux-amd64.tar.gz
+tar -xzf bellsoft-jdk21.0.10+10-linux-amd64.tar.gz
+mv /opt/jdk-21.0.10+10 /opt/jdk-21.0.10
+export JAVA_HOME=/opt/jdk-21.0.10
+export PATH=$JAVA_HOME/bin:$PATH
 
 # Verify installation
 java -version
@@ -435,11 +440,11 @@ java -version
 
 You should see:
 ```
-openjdk version "17.0.x"
+openjdk version "21.0.x"
 ```
 
 **What just happened?**
-- Installed Java 17 (the recommended version)
+- Installed Java 21 LTS (the recommended version)
 - Verified it's working
 
 ### Step 2.2: Set JAVA_HOME
@@ -455,7 +460,7 @@ openjdk version "17.0.x"
 dirname $(dirname $(readlink -f $(which java)))
 
 # Set JAVA_HOME
-echo 'export JAVA_HOME=/usr/lib/jvm/java-17-openjdk' >> ~/.bashrc
+echo 'export JAVA_HOME=/opt/jdk-21.0.10' >> ~/.bashrc
 echo 'export PATH=$JAVA_HOME/bin:$PATH' >> ~/.bashrc
 source ~/.bashrc
 
@@ -483,11 +488,11 @@ Downloading and extracting Kafka software on all 3 servers.
 # Go to temp directory
 cd /tmp
 
-# Download Kafka 3.9.1
-sudo wget https://downloads.apache.org/kafka/3.9.1/kafka_2.13-3.9.1.tgz
+# Download Kafka 4.1.1
+sudo wget https://downloads.apache.org/kafka/4.1.1/kafka_2.13-4.1.1.tgz
 
-# Verify download (should see kafka_2.13-3.9.1.tgz)
-ls -lh kafka_2.13-3.9.1.tgz
+# Verify download (should see kafka_2.13-4.1.1.tgz)
+ls -lh kafka_2.13-4.1.1.tgz
 ```
 
 **What just happened?**
@@ -500,10 +505,10 @@ ls -lh kafka_2.13-3.9.1.tgz
 
 ```bash
 # Extract the file
-sudo tar -xzf kafka_2.13-3.9.1.tgz -C /opt/
+sudo tar -xzf kafka_2.13-4.1.1.tgz -C /opt/
 
 # Rename for easier access
-sudo mv /opt/kafka_2.13-3.9.1 /opt/kafka
+sudo mv /opt/kafka_2.13-4.1.1 /opt/kafka
 
 # Give ownership to kafka user
 sudo chown -R kafka:kafka /opt/kafka
@@ -873,7 +878,7 @@ User=kafka
 Group=kafka
 
 # Where Java is installed
-Environment="JAVA_HOME=/usr/lib/jvm/java-17-openjdk"
+Environment="JAVA_HOME=/opt/jdk-21.0.10"
 
 # How much memory for Kafka
 Environment="KAFKA_HEAP_OPTS=-Xms6g -Xmx6g"
@@ -1364,7 +1369,7 @@ Use this checklist to verify your installation:
 - [ ] Data directories created
 
 ### Software Installation
-- [ ] Java 17 installed on all servers
+- [ ] Java 21 LTS installed on all servers
 - [ ] JAVA_HOME set correctly
 - [ ] Kafka downloaded and extracted
 - [ ] Permissions set correctly
@@ -1453,4 +1458,4 @@ You now have enterprise-grade Kafka infrastructure ready for financial transacti
 
 *Last Updated: January 31, 2026*  
 *Version: 1.0*  
-*Kafka: 3.9.1 (KRaft Mode)*
+*Kafka: 4.1.1 (KRaft Mode)*

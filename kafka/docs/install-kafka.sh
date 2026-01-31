@@ -1,6 +1,6 @@
 #!/bin/bash
 ################################################################################
-# Kafka 3.9.1 KRaft Cluster - Automated Installation Script
+# Kafka 4.1.1 KRaft Cluster - Automated Installation Script
 # For RHEL 9.x / Oracle Linux 9.x / Rocky Linux 9.x
 #
 # PURPOSE:
@@ -8,7 +8,7 @@
 # It handles all the tedious setup tasks automatically.
 #
 # WHAT THIS SCRIPT DOES:
-# 1. Installs Java 17
+# 1. Installs Java 21 LTS
 # 2. Creates Kafka user and directories
 # 3. Optimizes operating system settings
 # 4. Downloads and installs Kafka
@@ -48,7 +48,7 @@ set -e
 ################################################################################
 
 # Kafka version to install
-KAFKA_VERSION="3.9.1"
+KAFKA_VERSION="4.1.1"
 SCALA_VERSION="2.13"
 
 # System users and directories
@@ -176,24 +176,32 @@ fi
 ################################################################################
 
 print_step "STEP 1/10: Installing System Prerequisites"
-print_info "This installs Java 17 and other required tools..."
+print_info "This installs Java 21 LTS and other required tools..."
 
 # Update hostname
 print_info "Setting hostname to $NODE_NAME..."
 hostnamectl set-hostname $NODE_NAME
 print_success "Hostname set to $NODE_NAME"
 
-# Install Java 17 and utilities
-print_info "Installing Java 17 (this may take a few minutes)..."
-dnf install -y java-17-openjdk-devel wget tar vim net-tools > /dev/null 2>&1
-print_success "Java 17 installed"
+# Install Java 21 LTS and utilities
+print_info "Installing prerequisites (wget, tar, etc.)..."
+dnf install -y wget tar vim net-tools > /dev/null 2>&1
+
+print_info "Installing BellSoft JDK 21 LTS..."
+cd /opt
+wget -q https://download.bell-sw.com/java/21.0.10+10/bellsoft-jdk21.0.10+10-linux-amd64.tar.gz
+tar -xzf bellsoft-jdk21.0.10+10-linux-amd64.tar.gz
+mv /opt/jdk-21.0.10+10 /opt/jdk-21.0.10
+export JAVA_HOME=/opt/jdk-21.0.10
+export PATH=$JAVA_HOME/bin:$PATH
+print_success "Java 21 LTS installed"
 
 # Verify Java installation
 JAVA_VER=$(java -version 2>&1 | head -n 1 | cut -d'"' -f2)
 print_success "Java version: $JAVA_VER"
 
 # Set JAVA_HOME
-export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
+export JAVA_HOME=/opt/jdk-21.0.10
 print_success "JAVA_HOME set to $JAVA_HOME"
 
 ################################################################################
@@ -423,7 +431,7 @@ After=network.target
 Type=simple
 User=kafka
 Group=kafka
-Environment="JAVA_HOME=/usr/lib/jvm/java-17-openjdk"
+Environment="JAVA_HOME=/opt/jdk-21.0.10"
 Environment="KAFKA_HEAP_OPTS=-Xms6g -Xmx6g"
 Environment="KAFKA_JVM_PERFORMANCE_OPTS=-XX:+UseG1GC -XX:MaxGCPauseMillis=20 -XX:InitiatingHeapOccupancyPercent=35 -XX:G1HeapRegionSize=16M"
 Environment="LOG_DIR=/var/log/kafka"
