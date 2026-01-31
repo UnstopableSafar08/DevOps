@@ -208,6 +208,15 @@ sudo firewall-cmd --reload
 
 ## 4. KAFKA INSTALLATION (3-Node Cluster)
 
+### **Hostname setup**
+```bash
+cat <<EOF | tee -a /etc/hosts
+192.168.1.101 kafka1
+192.168.1.102 kafka2
+192.168.1.103 kafka3
+EOF
+```
+
 ### **4.1 Download and Extract Kafka**
 
 ```bash
