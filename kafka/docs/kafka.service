@@ -1,0 +1,222 @@
+# Apache Kafka Systemd Service File
+# Location: /etc/systemd/system/kafka.service
+#
+# WHAT THIS FILE DOES:
+# This file tells your operating system how to manage Kafka as a service.
+# It handles starting, stopping, and restarting Kafka automatically.
+#
+# INSTALLATION:
+# 1. Copy this file to: /etc/systemd/system/kafka.service
+# 2. Run: sudo systemctl daemon-reload
+# 3. Run: sudo systemctl enable kafka
+# 4. Run: sudo systemctl start kafka
+#
+# USAGE:
+# - Start Kafka:   sudo systemctl start kafka
+# - Stop Kafka:    sudo systemctl stop kafka
+# - Restart:       sudo systemctl restart kafka
+# - Check status:  sudo systemctl status kafka
+# - View logs:     sudo journalctl -u kafka -f
+
+[Unit]
+# Service description (human-readable name)
+Description=Apache Kafka Server (KRaft Mode)
+
+# Link to documentation
+Documentation=https://kafka.apache.org/documentation/
+
+# Start Kafka only after network is available
+# Why: Kafka needs network to communicate with other servers
+After=network.target
+
+[Service]
+# Type of service
+# simple = Main process stays in foreground
+Type=simple
+
+# User and group to run Kafka
+# Security best practice: Don't run as root
+User=kafka
+Group=kafka
+
+#################### JAVA CONFIGURATION ####################
+
+# Where Java is installed
+# Kafka needs Java to run
+Environment="JAVA_HOME=/usr/lib/jvm/java-17-openjdk"
+
+#################### MEMORY CONFIGURATION ####################
+
+# How much RAM to give to Kafka
+# Format: -Xms = Starting memory, -Xmx = Maximum memory
+# Value: 6g = 6 Gigabytes
+#
+# EXPLANATION (Simple terms):
+# - Kafka needs memory to work efficiently
+# - 6 GB is good for most production workloads
+# - Set both to same value to prevent memory resizing
+#
+# WHEN TO ADJUST:
+# - Small server (32 GB RAM): Use 4g
+# - Large server (128 GB RAM): Use 8-12g
+# - Formula: Use 25-40% of total server RAM
+Environment="KAFKA_HEAP_OPTS=-Xms6g -Xmx6g"
+
+#################### GARBAGE COLLECTION (GC) CONFIGURATION ####################
+
+# How Kafka manages memory cleanup
+# These settings optimize Java's memory management
+#
+# EXPLANATION (Simple terms):
+# Java has a "garbage collector" that cleans up unused memory.
+# These settings tell it how to do that efficiently.
+#
+# Settings breakdown:
+# -XX:+UseG1GC = Use G1 garbage collector (best for Kafka)
+# -XX:MaxGCPauseMillis=20 = Try to pause for max 20ms when cleaning
+# -XX:InitiatingHeapOccupancyPercent=35 = Start cleaning at 35% full
+# -XX:G1HeapRegionSize=16M = Size of memory chunks
+Environment="KAFKA_JVM_PERFORMANCE_OPTS=-XX:+UseG1GC -XX:MaxGCPauseMillis=20 -XX:InitiatingHeapOccupancyPercent=35 -XX:G1HeapRegionSize=16M -XX:MinMetaspaceFreeRatio=50 -XX:MaxMetaspaceFreeRatio=80"
+
+#################### LOGGING CONFIGURATION ####################
+
+# Where Kafka writes its log files
+# These are diagnostic logs (not message data)
+Environment="LOG_DIR=/var/log/kafka"
+
+# Garbage collection logging
+# Helps diagnose memory issues
+# Format: gc*:file=location:time,tags:filecount=10,filesize=100M
+# Meaning: Keep 10 log files, each max 100 MB
+Environment="KAFKA_GC_LOG_OPTS=-Xlog:gc*:file=/var/log/kafka/gc.log:time,tags:filecount=10,filesize=100M"
+
+#################### JMX MONITORING (OPTIONAL) ####################
+
+# Java Management Extensions - for monitoring
+# Uncomment to enable external monitoring tools
+# Port 9999 is commonly used for Kafka JMX
+#Environment="JMX_PORT=9999"
+#Environment="KAFKA_JMX_OPTS=-Dcom.sun.management.jmxremote -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.ssl=false -Dcom.sun.management.jmxremote.port=9999"
+
+#################### SERVICE EXECUTION ####################
+
+# Command to start Kafka
+# This runs the kafka-server-start.sh script with your config file
+ExecStart=/opt/kafka/bin/kafka-server-start.sh /opt/kafka/config/server.properties
+
+# Command to stop Kafka
+# This runs the kafka-server-stop.sh script for graceful shutdown
+ExecStop=/opt/kafka/bin/kafka-server-stop.sh
+
+#################### RESTART POLICY ####################
+
+# What to do if Kafka crashes
+# on-failure = Restart automatically if it crashes
+# Why: Ensures high availability
+Restart=on-failure
+
+# How long to wait before restarting
+# Value: 10 seconds
+# Why: Gives time for issues to clear before restart
+RestartSec=10
+
+#################### RESOURCE LIMITS ####################
+
+# Maximum number of open files
+# Kafka opens many files simultaneously
+# Value: 100000 = 100,000 files
+# Why: Kafka needs this for partitions, connections, and log files
+LimitNOFILE=100000
+
+# Maximum number of processes/threads
+# Value: 32768
+# Why: Kafka creates many threads for handling requests
+LimitNPROC=32768
+
+# Send SIGTERM to stop (graceful shutdown)
+# Timeout before forcing stop
+# Value: 60 seconds
+# Why: Gives Kafka time to flush data and transfer leadership
+TimeoutStopSec=60
+
+#################### WORKING DIRECTORY ####################
+
+# Where to run the service from
+WorkingDirectory=/opt/kafka
+
+[Install]
+# When to start this service
+# multi-user.target = Start when system is ready for users
+# Why: Ensures all dependencies (network, disk) are available
+WantedBy=multi-user.target
+
+#################### USAGE NOTES ####################
+
+# COMMON COMMANDS:
+#
+# Start Kafka (first time):
+#   sudo systemctl start kafka
+#
+# Stop Kafka:
+#   sudo systemctl stop kafka
+#
+# Restart Kafka:
+#   sudo systemctl restart kafka
+#
+# Check if running:
+#   sudo systemctl status kafka
+#
+# Enable auto-start on boot:
+#   sudo systemctl enable kafka
+#
+# Disable auto-start:
+#   sudo systemctl disable kafka
+#
+# View real-time logs:
+#   sudo journalctl -u kafka -f
+#
+# View last 100 log lines:
+#   sudo journalctl -u kafka -n 100
+
+#################### TROUBLESHOOTING ####################
+
+# IF KAFKA WON'T START:
+#
+# 1. Check the status:
+#    sudo systemctl status kafka
+#
+# 2. Check the logs:
+#    sudo journalctl -u kafka -n 100 --no-pager
+#
+# 3. Check Kafka's own logs:
+#    sudo tail -100 /var/log/kafka/server.log
+#
+# 4. Verify configuration:
+#    sudo /opt/kafka/bin/kafka-server-start.sh \
+#      /opt/kafka/config/server.properties
+#    (Run in foreground to see errors)
+#
+# 5. Check permissions:
+#    ls -la /data/kafka/
+#    (Should be owned by kafka:kafka)
+#
+# 6. Check ports:
+#    netstat -tulpn | grep 9092
+#    (Should not show anything if Kafka is stopped)
+
+#################### PERFORMANCE TUNING ####################
+
+# TO INCREASE MEMORY (if server has more RAM):
+# Change: KAFKA_HEAP_OPTS=-Xms6g -Xmx6g
+# To:     KAFKA_HEAP_OPTS=-Xms8g -Xmx8g
+# Then:   sudo systemctl daemon-reload
+#         sudo systemctl restart kafka
+#
+# NEVER use more than 50% of server RAM for heap!
+
+# TO ENABLE JMX MONITORING:
+# Uncomment the JMX_PORT and KAFKA_JMX_OPTS lines above
+# Then:   sudo systemctl daemon-reload
+#         sudo systemctl restart kafka
+
+#################### END OF FILE ####################

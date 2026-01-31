@@ -1,0 +1,18 @@
+kafka-production-guide/
+├── README.md                      # Main guide (~800 lines, comprehensive)
+├── QUICKSTART.md                  # 30-minute fast setup
+├── STRUCTURE.md                   # Explains each file's purpose
+├── LICENSE                        # Apache 2.0 license
+├── .gitignore                     # Git ignore rules
+├── README-DOWNLOAD.md             # Instructions for you
+│
+├── configs/                       # Ready-to-use configurations
+│   ├── server.properties.template # Kafka config with detailed comments
+│   └── kafka.service             # Systemd service file
+│
+├── scripts/                       # Automation
+│   └── install-kafka.sh          # Complete installation script
+│
+└── docs/                          # Additional guides
+    ├── OPERATIONS.md              # Daily operations manual
+    └── FAQ.md                     # 20+ Q&A with simple explanations
