@@ -42,7 +42,7 @@ This guide covers:
 * **Scala:** 2.13
 * **Java:** BellSoft Liberica JDK 21.0.10
 * **Kafka Home:** `/opt/kafka`
-* **Kafka Data:** `/data/kafka`
+* **Kafka Data:** `/var/kafka`
 * **Kafka Logs:** `/var/log/kafka`
 
 ---
@@ -174,8 +174,8 @@ transaction.state.log.min.isr=2
 ### Storage
 
 ```properties
-log.dirs=/data/kafka/logs
-metadata.log.dir=/data/kafka/metadata
+log.dirs=/var/kafka/logs
+metadata.log.dir=/var/kafka/metadata
 ```
 
 ---
