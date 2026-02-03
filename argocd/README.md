@@ -157,6 +157,25 @@ kubectl label node sagar-dr-k8s-worker-01.sagar.com.np argocd-node=primary --ove
 
 **Replace** `sagar-dr-k8s-worker-01.sagar.com.np` with your actual node name.
 
+**Output:**
+```bash
+[root@drk8s-master01 ~]# kubectl label node sagar-dr-k8s-worker-01.sagar.com.np node-role.kubernetes.io/worker=worker
+node/sagar-dr-k8s-worker-01.sagar.com.np not labeled
+[root@drk8s-master01 ~]#
+[root@drk8s-master01 ~]#
+[root@drk8s-master01 ~]# kubectl label node sagar-dr-k8s-worker-01.sagar.com.np argocd-node=primary --overwrite
+node/sagar-dr-k8s-worker-01.sagar.com.np not labeled
+[root@drk8s-master01 ~]#
+[root@drk8s-master01 ~]#
+[root@drk8s-master01 ~]#
+[root@drk8s-master01 ~]# kubectl get node sagar-dr-k8s-worker-01.sagar.com.np --show-labels
+NAME                                  STATUS   ROLES    AGE   VERSION   LABELS
+sagar-dr-k8s-worker-01.sagar.com.np   Ready    worker   88d   v1.34.1   argocd-node=primary,beta.kubernetes.io/arch=amd64,beta.kubernetes.io/os=linux,kubernetes.io/arch=amd64,kubernetes.io/hostname=sagar-dr-k8s-worker-01.sagar.com.np,kubernetes.io/os=linux,node-role.kubernetes.io/worker=worker
+[root@drk8s-master01 ~]#
+```
+
+> Note: When kubectl returns "not labeled," it typically means the node was found, but no changes were actually made because the node already had the exact label you were trying to apply.
+
 **Get your node names:**
 ```bash
 kubectl get nodes
