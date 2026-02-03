@@ -125,7 +125,7 @@ aBcD1234XyZ789
 
 This method pins ArgoCD pods to specific worker nodes for better resource management and isolation.
 
-### Step 1-5: Follow Basic Installation
+# Step 1-5: Follow Basic Installation
 
 Complete Steps 1-5 from Method 1 above.
 
