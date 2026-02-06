@@ -163,201 +163,417 @@ WITH PROPER SETTINGS (-Xmx6G):
 ---
 
 
-## Default JVM & GC Settings Table
+## Default JVM & GC Settings
 
-| **Java Version** | **Default Initial Heap (-Xms)** | **Default Max Heap (-Xmx)** | **Default GC** | **Metaspace/PermGen** | **Thread Stack (-Xss)** | **Code Cache** |
-|------------------|--------------------------------|----------------------------|----------------|-----------------------|------------------------|----------------|
-| **Java 8** | 1/64 of RAM (~256MB for 16GB) | 1/4 of RAM (~4GB for 16GB) | **Parallel GC** | PermGen: **Unlimited** (MaxPermSize not set) | **1MB** | 240MB |
-| **Java 20** | 1/64 of RAM (~256MB for 16GB) | 1/4 of RAM (~4GB for 16GB) | **G1GC** | Metaspace: **Unlimited**  | **1MB** | 240MB |
-| **Java 21** | 1/64 of RAM (~256MB for 16GB) | 1/4 of RAM (~4GB for 16GB) | **G1GC** | Metaspace: **Unlimited**  | **1MB** | 240MB |
+| **Java Version** | **Default Heap (16GB RAM)** | **% of Physical RAM** | **Default GC** | **Metaspace/PermGen** | **Thread Stack** |
+|------------------|----------------------------|-----------------------|----------------|-----------------------|------------------|
+| Java 8 | Initial: 256MB, Max: 4GB | Initial: 1.6%, Max: 25% | Parallel GC | PermGen: Unlimited | 1MB per thread |
+| Java 20 | Initial: 256MB, Max: 4GB | Initial: 1.6%, Max: 25% | G1GC | Metaspace: Unlimited | 1MB per thread |
+| Java 21 | Initial: 256MB, Max: 4GB | Initial: 1.6%, Max: 25% | G1GC | Metaspace: Unlimited | 1MB per thread |
 
-### ** Critical Default Problems:**
-- **Metaspace/PermGen unlimited** = Will consume all native memory → Crashes
-- **Initial heap too small** (256MB) = Frequent resizing, poor performance
-- **Thread stack 1MB** = Wastes memory with many threads
+**Critical Problem:** Unlimited Metaspace/PermGen causes native memory exhaustion and crashes.
 
 ---
 
-## Production Environment Thumb Rules
+## Production Thumb Rules
 
-### **Rule 1: Heap Size Allocation**
+### 1. Heap Size Formula
+```
+Heap = Physical RAM × 40-50%
+Always set: -Xms = -Xmx (avoid resizing)
+```
 
-| **Physical RAM** | **Heap Size (-Xms/-Xmx)** | **Percentage** | **Reasoning** |
-|------------------|---------------------------|----------------|---------------|
-| **4 GB** | 1.5 - 2 GB | 37-50% | Leave room for OS + non-heap memory |
-| **8 GB** | 3 - 4 GB | 37-50% | Balanced for medium apps |
-| **16 GB** | 6 - 8 GB | 37-50% | Safe for enterprise apps |
-| **32 GB** | 12 - 16 GB | 37-50% | Large apps, careful GC tuning needed |
-| **64 GB+** | 20 - 32 GB | 31-50% | Consider ZGC or Shenandoah |
+| **Physical RAM** | **Recommended Heap** | **% of Physical RAM** |
+|------------------|---------------------|-----------------------|
+| 4 GB | 1.5 - 2 GB | 37 - 50% |
+| 8 GB | 3 - 4 GB | 37 - 50% |
+| 16 GB | 6 - 8 GB | 37 - 50% |
+| 32 GB | 12 - 16 GB | 37 - 50% |
 
-**Formula:** `Heap = Physical RAM × 0.4 to 0.5`
+### 2. GC Selection
+```
+Heap < 8GB:  Use G1GC
+Heap > 8GB:  Use G1GC (or ZGC for ultra-low latency)
+```
+
+### 3. Metaspace Limits (Critical)
+
+| **Application Type** | **Metaspace Size** | **% of Physical RAM** |
+|----------------------|-------------------|-----------------------|
+| Small apps | 256 - 512MB | 1.6 - 3.2% (16GB server) |
+| Medium apps | 512MB - 1GB | 3.2 - 6.25% (16GB server) |
+| Large apps | 1 - 2GB | 6.25 - 12.5% (16GB server) |
+
+**NEVER leave unlimited**
+
+### 4. Thread Stack
+
+| **Thread Count** | **Stack Size** | **Total Stack Memory** | **% of Physical RAM (16GB)** |
+|------------------|----------------|------------------------|------------------------------|
+| < 100 threads | -Xss1024k (1MB) | < 100MB | < 0.6% |
+| 100-200 threads | -Xss512k | 50-100MB | 0.3 - 0.6% |
+| > 200 threads | -Xss256k | Variable | 0.2%+ |
+
+### 5. Direct Memory
+
+| **Application Type** | **Direct Memory** | **% of Physical RAM (16GB)** |
+|----------------------|-------------------|-----------------------------|
+| Small apps | 256 - 512MB | 1.6 - 3.2% |
+| Medium apps | 512MB - 1GB | 3.2 - 6.25% |
+| Large apps | 1 - 2GB | 6.25 - 12.5% |
 
 ---
 
-### **Rule 2: GC Selection by Heap Size**
+## Complete Production Configurations
 
-| **Heap Size** | **Recommended GC** | **GC Parameters** | **Use Case** |
-|---------------|-------------------|-------------------|--------------|
-| **< 2 GB** | **Parallel GC** | `-XX:+UseParallelGC` | Small apps, throughput priority |
-| **2 - 8 GB** | **G1GC** | `-XX:+UseG1GC -XX:MaxGCPauseMillis=200` | Most production apps (default choice) |
-| **8 - 32 GB** | **G1GC** | `-XX:+UseG1GC -XX:MaxGCPauseMillis=100` | Large apps, tune pause times |
-| **> 32 GB** | **ZGC or Shenandoah** | `-XX:+UseZGC` or `-XX:+UseShenandoahGC` | Ultra-low latency requirements |
+### Java 8
 
-**Default choice for production:** **G1GC** (works well 90% of the time)
+| **RAM** | **Configuration** | **Heap %** | **Metaspace %** | **Total JVM %** |
+|---------|-------------------|-----------|-----------------|-----------------|
+| **4GB** | `-Xms1536M -Xmx1536M -XX:PermSize=256M -XX:MaxPermSize=256M -Xss512k -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:MaxDirectMemorySize=512M` | 37.5% | 6.25% | ~60% |
+| **8GB** | `-Xms3G -Xmx3G -XX:PermSize=256M -XX:MaxPermSize=512M -Xss512k -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:MaxDirectMemorySize=1G` | 37.5% | 6.25% | ~62% |
+| **16GB** | `-Xms6G -Xmx6G -XX:PermSize=512M -XX:MaxPermSize=1G -Xss512k -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:MaxDirectMemorySize=1G` | 37.5% | 6.25% | ~53% |
 
----
+### Java 21
 
-### **Rule 3: Metaspace/PermGen Limits**
-
-| **Application Type** | **MetaspaceSize** | **MaxMetaspaceSize** | **Reasoning** |
-|----------------------|-------------------|----------------------|---------------|
-| **Small app (< 100 classes)** | 128M | 256M | Minimal framework usage |
-| **Medium app (Spring Boot)** | 256M | 512M | Standard frameworks |
-| **Large app (Microservices)** | 512M | 1G | Many dependencies, frameworks |
-| **Very large (Heavy frameworks)** | 512M | 2G | Extensive class loading |
-
-**⚠️ NEVER leave unlimited in production!**
+| **RAM** | **Configuration** | **Heap %** | **Metaspace %** | **Total JVM %** |
+|---------|-------------------|-----------|-----------------|-----------------|
+| **4GB** | `-Xms1536M -Xmx1536M -XX:MetaspaceSize=256M -XX:MaxMetaspaceSize=256M -Xss512k -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:MaxDirectMemorySize=512M` | 37.5% | 6.25% | ~60% |
+| **8GB** | `-Xms4G -Xmx4G -XX:MetaspaceSize=256M -XX:MaxMetaspaceSize=512M -Xss512k -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:MaxDirectMemorySize=1G` | 50% | 6.25% | ~75% |
+| **16GB** | `-Xms8G -Xmx8G -XX:MetaspaceSize=512M -XX:MaxMetaspaceSize=768M -Xss512k -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:MaxDirectMemorySize=1G` | 50% | 4.7% | ~62% |
 
 ---
 
-### **Rule 4: Thread Stack Size**
+## Memory Breakdown for 16GB Server (Java 21 Production Config)
 
-| **Thread Count** | **Stack Size (-Xss)** | **Total Stack Memory** | **Reasoning** |
-|------------------|-----------------------|------------------------|---------------|
-| **< 50 threads** | 1024k (1MB) | < 50 MB | Default is fine |
-| **50 - 200 threads** | 512k | 25 - 100 MB | Reduce to save memory |
-| **200 - 500 threads** | 256k | 50 - 125 MB | High concurrency apps |
-| **> 500 threads** | 256k | > 125 MB | Consider async/reactive patterns |
-
-**Formula:** `Total Stack Memory = Thread Count × Stack Size`
-
----
-
-### **Rule 5: Direct Memory & Code Cache**
-
-| **Setting** | **Small App** | **Medium App** | **Large App** |
-|-------------|---------------|----------------|---------------|
-| **MaxDirectMemorySize** | 256M | 512M - 1G | 1 - 2G |
-| **ReservedCodeCacheSize** | 128M | 240M | 512M |
+| **Component** | **Size** | **% of 16GB RAM** |
+|---------------|----------|-------------------|
+| Heap (-Xmx) | 8GB | 50% |
+| Metaspace | 768MB | 4.7% |
+| Thread Stacks (200 threads × 512k) | 100MB | 0.6% |
+| Direct Memory | 1GB | 6.25% |
+| Code Cache | 240MB | 1.5% |
+| JVM Internals | ~200MB | 1.25% |
+| **Total JVM** | **~10.3GB** | **~64%** |
+| **OS + Buffers** | **~5.7GB** | **~36%** |
 
 ---
 
-## Complete Production Configuration Matrix
+## setenv.sh Configuration Files
 
-### **Java 8 Production Settings**
+### Java 8 - 4GB RAM
 
-| **RAM** | **Complete Configuration** |
-|---------|---------------------------|
-| **4 GB** | `-Xms1536M -Xmx1536M -XX:PermSize=256M -XX:MaxPermSize=256M -Xss512k -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:MaxDirectMemorySize=512M` |
-| **8 GB** | `-Xms3G -Xmx3G -XX:PermSize=256M -XX:MaxPermSize=512M -Xss512k -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:MaxDirectMemorySize=1G` |
-| **16 GB** | `-Xms6G -Xmx6G -XX:PermSize=512M -XX:MaxPermSize=1G -Xss512k -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:MaxDirectMemorySize=1G` |
-
-### **Java 21 Production Settings**
-
-| **RAM** | **Complete Configuration** |
-|---------|---------------------------|
-| **4 GB** | `-Xms1536M -Xmx1536M -XX:MetaspaceSize=256M -XX:MaxMetaspaceSize=256M -Xss512k -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:MaxDirectMemorySize=512M` |
-| **8 GB** | `-Xms4G -Xmx4G -XX:MetaspaceSize=256M -XX:MaxMetaspaceSize=512M -Xss512k -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:MaxDirectMemorySize=1G` |
-| **16 GB** | `-Xms8G -Xmx8G -XX:MetaspaceSize=512M -XX:MaxMetaspaceSize=768M -Xss512k -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:MaxDirectMemorySize=1G` |
-
----
-
-## Production Thumb Rules Checklist
-
-### **1. Memory Allocation**
-```
-Set -Xms = -Xmx (avoid resizing)
-Heap = 40-50% of physical RAM
-ALWAYS cap Metaspace (never unlimited)
-Leave 25-40% RAM for OS + buffers
-```
-
-### **2. GC Selection**
-```
-Heap < 8GB → Use G1GC
-Heap > 8GB → Use G1GC with tuning or consider ZGC
-Set MaxGCPauseMillis (100-200ms is typical)
-Monitor GC logs in production
-```
-
-### **3. Thread & Native Memory**
-```
-Reduce thread stack if > 100 threads
-Cap DirectMemory (don't leave unlimited)
-Reserve code cache appropriately
-```
-
-### **4. Monitoring & Safety**
-```
-Enable GC logging
-Enable heap dump on OOM
-Set up monitoring (Prometheus, AppDynamics, etc.)
-Test under production-like load
-```
-
----
-
-## Quick Decision Tree for Production
-
-```
-START
-  |
-  ├─ RAM size?
-  │   ├─ 4GB  → Heap: 1.5G, Metaspace: 256M, G1GC
-  │   ├─ 8GB  → Heap: 4G, Metaspace: 512M, G1GC
-  │   └─ 16GB → Heap: 8G, Metaspace: 768M, G1GC
-  |
-  ├─ Thread count?
-  │   ├─ < 100   → -Xss1024k
-  │   └─ > 100   → -Xss512k
-  |
-  ├─ Java version?
-  │   ├─ Java 8  → Use PermSize/MaxPermSize
-  │   └─ Java 21 → Use MetaspaceSize/MaxMetaspaceSize
-  |
-  └─ DONE → Test, monitor, adjust
-```
-
----
-
-## Your Specific Case (16GB, Java 21, Production)
-
-### **Recommended Configuration:**
+**File:** `/path/to/tomcat/bin/setenv.sh`
 
 ```bash
 #!/bin/bash
-# /home/abc-mi/abc-mi/bin/setenv.sh
 
-# Heap settings
-export CATALINA_OPTS="-Xms8G -Xmx8G"
+# Heap settings (37.5% of 4GB = 1.5GB)
+export CATALINA_OPTS="-Xms1536M -Xmx1536M"
 
-# Metaspace (CRITICAL - cap it!)
-export CATALINA_OPTS="$CATALINA_OPTS -XX:MetaspaceSize=512M"
-export CATALINA_OPTS="$CATALINA_OPTS -XX:MaxMetaspaceSize=768M"
+# PermGen settings (Java 8)
+export CATALINA_OPTS="$CATALINA_OPTS -XX:PermSize=256M"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:MaxPermSize=256M"
 
-# Thread optimization (you have 200+ threads)
+# Thread stack
+export CATALINA_OPTS="$CATALINA_OPTS -Xss512k"
+
+# Native memory limits
+export CATALINA_OPTS="$CATALINA_OPTS -XX:MaxDirectMemorySize=512M"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:ReservedCodeCacheSize=240M"
+
+# GC settings
+export CATALINA_OPTS="$CATALINA_OPTS -XX:+UseG1GC"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:MaxGCPauseMillis=200"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:ParallelGCThreads=2"
+
+# GC Logging (Java 8)
+export CATALINA_OPTS="$CATALINA_OPTS -Xloggc:/path/to/tomcat/logs/gc.log"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:+PrintGCDetails"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:+PrintGCDateStamps"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:+UseGCLogFileRotation"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:NumberOfGCLogFiles=5"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:GCLogFileSize=100M"
+
+# Heap dump on OOM
+export CATALINA_OPTS="$CATALINA_OPTS -XX:+HeapDumpOnOutOfMemoryError"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:HeapDumpPath=/path/to/tomcat/logs/"
+
+# Print configuration
+export CATALINA_OPTS="$CATALINA_OPTS -XX:+PrintCommandLineFlags"
+```
+
+### Java 8 - 8GB RAM
+
+**File:** `/path/to/tomcat/bin/setenv.sh`
+
+```bash
+#!/bin/bash
+
+# Heap settings (37.5% of 8GB = 3GB)
+export CATALINA_OPTS="-Xms3G -Xmx3G"
+
+# PermGen settings (Java 8)
+export CATALINA_OPTS="$CATALINA_OPTS -XX:PermSize=256M"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:MaxPermSize=512M"
+
+# Thread stack
 export CATALINA_OPTS="$CATALINA_OPTS -Xss512k"
 
 # Native memory limits
 export CATALINA_OPTS="$CATALINA_OPTS -XX:MaxDirectMemorySize=1G"
 export CATALINA_OPTS="$CATALINA_OPTS -XX:ReservedCodeCacheSize=240M"
 
-# G1GC settings
+# GC settings
+export CATALINA_OPTS="$CATALINA_OPTS -XX:+UseG1GC"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:MaxGCPauseMillis=200"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:ParallelGCThreads=4"
+
+# GC Logging (Java 8)
+export CATALINA_OPTS="$CATALINA_OPTS -Xloggc:/path/to/tomcat/logs/gc.log"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:+PrintGCDetails"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:+PrintGCDateStamps"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:+UseGCLogFileRotation"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:NumberOfGCLogFiles=5"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:GCLogFileSize=100M"
+
+# Heap dump on OOM
+export CATALINA_OPTS="$CATALINA_OPTS -XX:+HeapDumpOnOutOfMemoryError"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:HeapDumpPath=/path/to/tomcat/logs/"
+
+# Print configuration
+export CATALINA_OPTS="$CATALINA_OPTS -XX:+PrintCommandLineFlags"
+```
+
+### Java 8 - 16GB RAM
+
+**File:** `/path/to/tomcat/bin/setenv.sh`
+
+```bash
+#!/bin/bash
+
+# Heap settings (37.5% of 16GB = 6GB)
+export CATALINA_OPTS="-Xms6G -Xmx6G"
+
+# PermGen settings (Java 8)
+export CATALINA_OPTS="$CATALINA_OPTS -XX:PermSize=512M"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:MaxPermSize=1G"
+
+# Thread stack
+export CATALINA_OPTS="$CATALINA_OPTS -Xss512k"
+
+# Native memory limits
+export CATALINA_OPTS="$CATALINA_OPTS -XX:MaxDirectMemorySize=1G"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:ReservedCodeCacheSize=240M"
+
+# GC settings
+export CATALINA_OPTS="$CATALINA_OPTS -XX:+UseG1GC"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:MaxGCPauseMillis=200"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:ParallelGCThreads=4"
+
+# GC Logging (Java 8)
+export CATALINA_OPTS="$CATALINA_OPTS -Xloggc:/path/to/tomcat/logs/gc.log"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:+PrintGCDetails"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:+PrintGCDateStamps"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:+UseGCLogFileRotation"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:NumberOfGCLogFiles=5"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:GCLogFileSize=100M"
+
+# Heap dump on OOM
+export CATALINA_OPTS="$CATALINA_OPTS -XX:+HeapDumpOnOutOfMemoryError"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:HeapDumpPath=/path/to/tomcat/logs/"
+
+# Print configuration
+export CATALINA_OPTS="$CATALINA_OPTS -XX:+PrintCommandLineFlags"
+```
+
+---
+
+### Java 21 - 4GB RAM
+
+**File:** `/path/to/tomcat/bin/setenv.sh`
+
+```bash
+#!/bin/bash
+
+# Heap settings (37.5% of 4GB = 1.5GB)
+export CATALINA_OPTS="-Xms1536M -Xmx1536M"
+
+# Metaspace settings (Java 21)
+export CATALINA_OPTS="$CATALINA_OPTS -XX:MetaspaceSize=256M"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:MaxMetaspaceSize=256M"
+
+# Thread stack
+export CATALINA_OPTS="$CATALINA_OPTS -Xss512k"
+
+# Native memory limits
+export CATALINA_OPTS="$CATALINA_OPTS -XX:MaxDirectMemorySize=512M"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:ReservedCodeCacheSize=240M"
+
+# GC settings
+export CATALINA_OPTS="$CATALINA_OPTS -XX:+UseG1GC"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:MaxGCPauseMillis=200"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:ParallelGCThreads=2"
+
+# GC Logging (Java 21)
+export CATALINA_OPTS="$CATALINA_OPTS -Xlog:gc*:file=/path/to/tomcat/logs/gc.log:time,uptime,level,tags:filecount=5,filesize=100M"
+
+# Heap dump on OOM
+export CATALINA_OPTS="$CATALINA_OPTS -XX:+HeapDumpOnOutOfMemoryError"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:HeapDumpPath=/path/to/tomcat/logs/"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:+ExitOnOutOfMemoryError"
+
+# Print configuration
+export CATALINA_OPTS="$CATALINA_OPTS -XX:+PrintCommandLineFlags"
+```
+
+### Java 21 - 8GB RAM
+
+**File:** `/path/to/tomcat/bin/setenv.sh`
+
+```bash
+#!/bin/bash
+
+# Heap settings (50% of 8GB = 4GB)
+export CATALINA_OPTS="-Xms4G -Xmx4G"
+
+# Metaspace settings (Java 21)
+export CATALINA_OPTS="$CATALINA_OPTS -XX:MetaspaceSize=256M"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:MaxMetaspaceSize=512M"
+
+# Thread stack
+export CATALINA_OPTS="$CATALINA_OPTS -Xss512k"
+
+# Native memory limits
+export CATALINA_OPTS="$CATALINA_OPTS -XX:MaxDirectMemorySize=1G"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:ReservedCodeCacheSize=240M"
+
+# GC settings
+export CATALINA_OPTS="$CATALINA_OPTS -XX:+UseG1GC"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:MaxGCPauseMillis=200"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:ParallelGCThreads=4"
+
+# GC Logging (Java 21)
+export CATALINA_OPTS="$CATALINA_OPTS -Xlog:gc*:file=/path/to/tomcat/logs/gc.log:time,uptime,level,tags:filecount=5,filesize=100M"
+
+# Heap dump on OOM
+export CATALINA_OPTS="$CATALINA_OPTS -XX:+HeapDumpOnOutOfMemoryError"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:HeapDumpPath=/path/to/tomcat/logs/"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:+ExitOnOutOfMemoryError"
+
+# Print configuration
+export CATALINA_OPTS="$CATALINA_OPTS -XX:+PrintCommandLineFlags"
+```
+
+### Java 21 - 16GB RAM (YOUR CASE)
+
+**File:** `/home/tomcat-user/tomcat/bin/setenv.sh`
+
+```bash
+#!/bin/bash
+
+# Heap settings (50% of 16GB = 8GB)
+export CATALINA_OPTS="-Xms8G -Xmx8G"
+
+# Metaspace settings (Java 21)
+export CATALINA_OPTS="$CATALINA_OPTS -XX:MetaspaceSize=512M"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:MaxMetaspaceSize=768M"
+
+# Thread stack (you have 200+ threads)
+export CATALINA_OPTS="$CATALINA_OPTS -Xss512k"
+
+# Native memory limits
+export CATALINA_OPTS="$CATALINA_OPTS -XX:MaxDirectMemorySize=1G"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:ReservedCodeCacheSize=240M"
+
+# GC settings
 export CATALINA_OPTS="$CATALINA_OPTS -XX:+UseG1GC"
 export CATALINA_OPTS="$CATALINA_OPTS -XX:MaxGCPauseMillis=200"
 export CATALINA_OPTS="$CATALINA_OPTS -XX:ParallelGCThreads=4"
 export CATALINA_OPTS="$CATALINA_OPTS -XX:ConcGCThreads=2"
 
-# GC Logging (Java 21 format)
-export CATALINA_OPTS="$CATALINA_OPTS -Xlog:gc*:file=/home/abc-mi/abc-mi/logs/gc.log:time,uptime,level,tags:filecount=5,filesize=100M"
+# GC Logging (Java 21)
+export CATALINA_OPTS="$CATALINA_OPTS -Xlog:gc*:file=/home/tomcat-user/tomcat/logs/gc.log:time,uptime,level,tags:filecount=5,filesize=100M"
 
-# Safety net
+# Heap dump on OOM
 export CATALINA_OPTS="$CATALINA_OPTS -XX:+HeapDumpOnOutOfMemoryError"
-export CATALINA_OPTS="$CATALINA_OPTS -XX:HeapDumpPath=/home/abc-mi/abc-mi/logs/"
+export CATALINA_OPTS="$CATALINA_OPTS -XX:HeapDumpPath=/home/tomcat-user/tomcat/logs/"
 export CATALINA_OPTS="$CATALINA_OPTS -XX:+ExitOnOutOfMemoryError"
 
-# Print settings on startup
+# Print configuration
 export CATALINA_OPTS="$CATALINA_OPTS -XX:+PrintCommandLineFlags"
 ```
 
-This configuration will solve your "Not enough space" crashes and give you stable, predictable production performance.
+---
+
+## Installation Instructions
+
+### 1. Create setenv.sh file
+
+```bash
+# Navigate to Tomcat bin directory
+cd /home/tomcat-user/tomcat/bin
+
+# Create the file (use appropriate template from above)
+nano setenv.sh
+
+# Paste the appropriate configuration
+# Save and exit (Ctrl+O, Enter, Ctrl+X)
+```
+
+### 2. Set permissions
+
+```bash
+# Make executable
+chmod +x setenv.sh
+
+# Set correct ownership
+chown tomcat:tomcat setenv.sh
+```
+
+### 3. Verify configuration
+
+```bash
+# Check file exists and is executable
+ls -l setenv.sh
+
+# Expected output:
+# -rwxr-xr-x 1 tomcat tomcat 1234 Feb 06 14:00 setenv.sh
+```
+
+### 4. Restart Tomcat
+
+```bash
+# Stop Tomcat
+/home/tomcat-user/tomcat/bin/shutdown.sh
+
+# Wait a few seconds
+sleep 5
+
+# Start Tomcat
+/home/tomcat-user/tomcat/bin/startup.sh
+```
+
+### 5. Verify settings applied
+
+```bash
+# Check running process
+ps aux | grep java | grep Xmx
+
+# Should see: -Xms8G -Xmx8G -XX:MaxMetaspaceSize=768M etc.
+```
+
+---
+
+## Production Checklist
+
+After creating setenv.sh:
+
+- Verify file permissions (executable)
+- Verify ownership (correct user)
+- Update log paths in configuration
+- Restart Tomcat
+- Check startup logs for errors
+- Verify JVM settings with ps command
+- Monitor GC logs
+- Monitor heap usage with jstat or monitoring tools
