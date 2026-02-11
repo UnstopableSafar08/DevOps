@@ -45,6 +45,16 @@ EOF
 chmod +x /etc/keepalived/chk_haproxy.sh
 ```
 
+### FYI : If You used a nginx as a LB.
+```bash
+cat << 'EOF' > /etc/keepalived/chk_haproxy.sh
+#!/bin/bash
+systemctl is-active --quiet nginx
+EOF
+
+chmod +x /etc/keepalived/chk_nginx.sh
+```
+
 ---
 
 ## Keepalived Configuration
@@ -52,8 +62,9 @@ chmod +x /etc/keepalived/chk_haproxy.sh
 ### MASTER — extlb-01 (10.150.160.30)
 
 ```conf
-vrrp_script chk_haproxy {
+vrrp_script chk_health {
     script "/etc/keepalived/chk_haproxy.sh"
+    # script "/etc/keepalived/chk_nginx.sh"
     interval 2
     fall 2
     rise 1
@@ -65,6 +76,7 @@ vrrp_instance LB_VIP {
     virtual_router_id 50
     priority 101
     advert_int 1
+    preempt_delay 10 # MASTER must be healthy for 10 seconds then the VIP reclaim.
 
     unicast_src_ip 10.150.160.30
     unicast_peer {
@@ -81,7 +93,7 @@ vrrp_instance LB_VIP {
     }
 
     track_script {
-        chk_haproxy
+        chk_health
     }
 }
 ```
@@ -91,8 +103,9 @@ vrrp_instance LB_VIP {
 ### BACKUP — extlb-02 (10.150.160.31)
 
 ```conf
-vrrp_script chk_haproxy {
+vrrp_script chk_health {
     script "/etc/keepalived/chk_haproxy.sh"
+    # script "/etc/keepalived/chk_nginx.sh"
     interval 2
     fall 2
     rise 1
@@ -104,7 +117,7 @@ vrrp_instance LB_VIP {
     virtual_router_id 50
     priority 100
     advert_int 1
-    nopreempt
+    # nopreempt    # VIP does not move back due to option - nopreempt
 
     unicast_src_ip 10.150.160.31
     unicast_peer {
@@ -121,7 +134,7 @@ vrrp_instance LB_VIP {
     }
 
     track_script {
-        chk_haproxy
+        chk_health
     }
 }
 ```
@@ -150,7 +163,7 @@ vrrp_instance LB_VIP {
 ## Failover Behavior
 
 1. Normal  
-   - extlb-01 owns the VIP
+   - MASTER owns the VIP
 
 2. HAProxy stops on MASTER  
    - Health check fails  
@@ -158,15 +171,36 @@ vrrp_instance LB_VIP {
    - BACKUP takes VIP (~2–3 seconds)
 
 3. MASTER recovers  
-   - VIP does not move back (nopreempt)  
-   - No traffic interruption
+    - MASTER sees it has higher priority (101 > 100)
+    - MASTER reclaims VIP
+    - BACKUP drops VIP
+      Failback time: Approximately 1–3 seconds (based on advert_int)
+    
+    ***Important Production Warning.***
+    Automatic failback from BACKUP to MASTER can cause:    
+    - Brief traffic interruption
+    - TCP resets
+    - Session drops (if not using stick tables or shared state)
+    - Double failover if MASTER is unstable
+    - This is why many production environments intentionally use nopreempt.
 
+    **If You Want Safer Automatic Failback.**
+
+    You can delay failback using:
+    Add this to MASTER:
+    ```bash
+    preempt_delay 10
+    ```
+    **That means:**
+    - MASTER must be healthy for 10 seconds
+    - Then it reclaims VIP
+    - This prevents flap storms.
+    
 4. Manual failback  
 
 ```bash
 systemctl restart keepalived
 ```
-
 ---
 
 ## Validation
@@ -183,6 +217,7 @@ journalctl -u keepalived -f
 - Allow VRRP protocol 112 or required unicast traffic in firewalld
 ```bash
 firewall-cmd --permanent --add-protocol=vrrp
+# firewall-cmd --permanent --add-protocol=112
 firewall-cmd --reload
 ```
 - Both nodes must have:
