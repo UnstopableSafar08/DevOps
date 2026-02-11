@@ -173,7 +173,7 @@ vrrp_instance LB_VIP {
 3. MASTER recovers  
     - MASTER sees it has higher priority (101 > 100)
     - MASTER reclaims VIP
-    - BACKUP drops VIP
+    - BACKUP drops VIP | 
       Failback time: Approximately 1–3 seconds (based on advert_int)
     
     ***Important Production Warning.***
