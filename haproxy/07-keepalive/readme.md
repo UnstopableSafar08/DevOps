@@ -181,6 +181,10 @@ journalctl -u keepalived -f
 ## Production Notes
 
 - Allow VRRP protocol 112 or required unicast traffic in firewalld
+```bash
+firewall-cmd --permanent --add-protocol=vrrp
+firewall-cmd --reload
+```
 - Both nodes must have:
   - Same virtual_router_id
   - Same auth_pass
