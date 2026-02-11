@@ -1,12 +1,16 @@
+```markdown
 # Centralized Log Visualization Platform
 
-Production-ready centralized logging and monitoring solution for Tomcat and PHP applications using Promtail, Loki, Prometheus, and Grafana with RBAC implementation.
+Production-ready centralized logging and monitoring solution for Tomcat and PHP applications
+using Promtail, Loki, Prometheus, and Grafana with RBAC implementation.
 
 ## Overview
 
-This setup provides centralized log aggregation and visualization for 10 modules across 50+ servers with 2-day retention period and role-based access control.
+This setup provides centralized log aggregation and visualization for 10 modules across 50+ servers
+with 2-day retention period and role-based access control.
 
 ## Architecture
+
 ```
 Application Servers (50+)
   ↓ Promtail (Log Collection)
@@ -22,19 +26,24 @@ Dashboard Access (RBAC)
 ## Technology Stack
 
 ### Promtail
-Log shipping agent installed on application servers. Reads log files and forwards them to Loki with metadata labels. Acts as the data collection layer that monitors specified log paths continuously.
+Log shipping agent installed on application servers. Reads log files and forwards them to Loki
+with metadata labels. Acts as the data collection layer that monitors specified log paths continuously.
 
 ### Loki
-Log aggregation system that indexes and stores logs using labels rather than full-text indexing. Designed for high-volume log ingestion with minimal resource overhead and cost-efficient storage.
+Log aggregation system that indexes and stores logs using labels rather than full-text indexing.
+Designed for high-volume log ingestion with minimal resource overhead and cost-efficient storage.
 
 ### Prometheus
-Time-series metrics database that collects and stores numerical data from servers and applications. Monitors system health, performance metrics, and triggers alerts based on defined thresholds.
+Time-series metrics database that collects and stores numerical data from servers and applications.
+Monitors system health, performance metrics, and triggers alerts based on defined thresholds.
 
 ### Grafana
-Visualization platform that queries Loki and Prometheus to display logs and metrics through customizable dashboards. Provides RBAC for controlling user access to specific modules and data sources.
+Visualization platform that queries Loki and Prometheus to display logs and metrics through
+customizable dashboards. Provides RBAC for controlling user access to specific modules and data sources.
 
 ### HAProxy
-Load balancer that distributes incoming log traffic across multiple Loki instances. Ensures high availability and prevents single point of failure in the logging infrastructure.
+Load balancer that distributes incoming log traffic across multiple Loki instances.
+Ensures high availability and prevents single point of failure in the logging infrastructure.
 
 ## Server Requirements
 
@@ -44,25 +53,25 @@ Load balancer that distributes incoming log traffic across multiple Loki instanc
 - CPU: 8 cores
 - RAM: 16GB
 - Disk: 1TB SSD
-- OS: Ubuntu 20.04/22.04
+- OS: RHEL 8/9, Rocky Linux 8/9, AlmaLinux 8/9
 
 **Prometheus (2 servers)**
 - CPU: 4 cores
 - RAM: 16GB
 - Disk: 200GB SSD
-- OS: Ubuntu 20.04/22.04
+- OS: RHEL 8/9, Rocky Linux 8/9, AlmaLinux 8/9
 
 **Grafana (2 servers)**
 - CPU: 4 cores
 - RAM: 8GB
 - Disk: 50GB
-- OS: Ubuntu 20.04/22.04
+- OS: RHEL 8/9, Rocky Linux 8/9, AlmaLinux 8/9
 
 **Load Balancer (1 server)**
 - CPU: 2 cores
 - RAM: 4GB
 - Disk: 20GB
-- OS: Ubuntu 20.04/22.04
+- OS: RHEL 8/9, Rocky Linux 8/9, AlmaLinux 8/9
 
 ### Application Servers (50+)
 - Promtail and Node Exporter installed
@@ -73,31 +82,43 @@ Load balancer that distributes incoming log traffic across multiple Loki instanc
 ### Step 1: Prepare All Servers
 
 Run on all servers before starting installation:
+
 ```bash
 # Update system packages
-apt-get update && apt-get upgrade -y
+dnf update -y
 
 # Install required dependencies
-apt-get install wget curl unzip apt-transport-https software-properties-common -y
+dnf install -y wget curl unzip tar gzip
 
-# Configure firewall rules
-ufw allow 22/tcp
-ufw allow 3100/tcp  # Loki
-ufw allow 9090/tcp  # Prometheus
-ufw allow 3000/tcp  # Grafana
-ufw allow 9080/tcp  # Promtail
-ufw allow 9100/tcp  # Node Exporter
-ufw --force enable
+# Disable SELinux (or configure properly for production)
+setenforce 0
+sed -i 's/^SELINUX=enforcing/SELINUX=permissive/' /etc/selinux/config
+
+# Configure firewall
+firewall-cmd --permanent --add-port=22/tcp
+firewall-cmd --permanent --add-port=3100/tcp  # Loki
+firewall-cmd --permanent --add-port=9090/tcp  # Prometheus
+firewall-cmd --permanent --add-port=3000/tcp  # Grafana
+firewall-cmd --permanent --add-port=9080/tcp  # Promtail
+firewall-cmd --permanent --add-port=9100/tcp  # Node Exporter
+firewall-cmd --reload
 
 # Set timezone
 timedatectl set-timezone UTC
 
 # Increase file descriptor limits
-echo "* soft nofile 65536" >> /etc/security/limits.conf
-echo "* hard nofile 65536" >> /etc/security/limits.conf
+cat >> /etc/security/limits.conf << EOF
+* soft nofile 65536
+* hard nofile 65536
+EOF
+
+# Apply limits without reboot
+echo "* soft nofile 65536" >> /etc/security/limits.d/90-nofile.conf
+echo "* hard nofile 65536" >> /etc/security/limits.d/90-nofile.conf
 ```
 
 ### Step 2: Install Loki Cluster (Servers 1-3)
+
 ```bash
 # Download Loki binary
 cd /opt
@@ -107,13 +128,14 @@ chmod +x loki-linux-amd64
 mv loki-linux-amd64 /usr/local/bin/loki
 
 # Create user and directories
-useradd --no-create-home --shell /bin/false loki
+useradd --no-create-home --shell /sbin/nologin loki
 mkdir -p /etc/loki /var/lib/loki/chunks /var/lib/loki/boltdb-shipper-active /var/lib/loki/boltdb-shipper-cache /var/lib/loki/compactor
 chown -R loki:loki /etc/loki /var/lib/loki
 chmod -R 755 /var/lib/loki
 ```
 
 Create Loki configuration file: `/etc/loki/config.yml`
+
 ```yaml
 auth_enabled: false
 
@@ -185,6 +207,7 @@ query_range:
 ```
 
 Create systemd service: `/etc/systemd/system/loki.service`
+
 ```ini
 [Unit]
 Description=Loki Log Aggregation System
@@ -206,6 +229,7 @@ WantedBy=multi-user.target
 ```
 
 Start Loki service:
+
 ```bash
 systemctl daemon-reload
 systemctl enable loki
@@ -217,39 +241,45 @@ curl http://localhost:3100/ready
 ```
 
 ### Step 3: Install HAProxy Load Balancer (Server 4)
+
 ```bash
 # Install HAProxy
-apt-get install haproxy -y
+dnf install -y haproxy
 
 # Backup original configuration
 cp /etc/haproxy/haproxy.cfg /etc/haproxy/haproxy.cfg.backup
 ```
 
 Configure HAProxy: `/etc/haproxy/haproxy.cfg`
+
 ```conf
 global
-    log /dev/log local0
-    log /dev/log local1 notice
-    chroot /var/lib/haproxy
-    stats socket /run/haproxy/admin.sock mode 660 level admin
-    stats timeout 30s
-    user haproxy
-    group haproxy
+    log         127.0.0.1 local2
+    chroot      /var/lib/haproxy
+    pidfile     /var/run/haproxy.pid
+    maxconn     4096
+    user        haproxy
+    group       haproxy
     daemon
-    maxconn 4096
+    stats socket /var/lib/haproxy/stats
 
 defaults
-    log global
-    mode http
-    option httplog
-    option dontlognull
-    option http-server-close
-    option forwardfor except 127.0.0.0/8
-    option redispatch
-    retries 3
-    timeout connect 5000
-    timeout client 50000
-    timeout server 50000
+    mode                    http
+    log                     global
+    option                  httplog
+    option                  dontlognull
+    option                  http-server-close
+    option                  forwardfor except 127.0.0.0/8
+    option                  redispatch
+    retries                 3
+    timeout http-request    10s
+    timeout queue           1m
+    timeout connect         10s
+    timeout client          1m
+    timeout server          1m
+    timeout http-keep-alive 10s
+    timeout check           10s
+    maxconn                 3000
 
 frontend loki_frontend
     bind *:3100
@@ -274,13 +304,17 @@ listen stats
 ```
 
 Replace IP addresses with your actual Loki server IPs.
+
 ```bash
+# Allow HAProxy to bind to custom ports (SELinux)
+setsebool -P haproxy_connect_any 1
+
 # Test configuration
 haproxy -c -f /etc/haproxy/haproxy.cfg
 
-# Restart HAProxy
-systemctl restart haproxy
+# Start HAProxy
 systemctl enable haproxy
+systemctl start haproxy
 systemctl status haproxy
 
 # Verify load balancer
@@ -288,6 +322,7 @@ curl http://localhost:3100/ready
 ```
 
 ### Step 4: Install Prometheus (Servers 5-6)
+
 ```bash
 # Download Prometheus
 cd /opt
@@ -300,13 +335,14 @@ cp prometheus /usr/local/bin/
 cp promtool /usr/local/bin/
 
 # Create user and directories
-useradd --no-create-home --shell /bin/false prometheus
+useradd --no-create-home --shell /sbin/nologin prometheus
 mkdir -p /etc/prometheus /var/lib/prometheus
 cp -r consoles console_libraries /etc/prometheus/
 chown -R prometheus:prometheus /etc/prometheus /var/lib/prometheus
 ```
 
 Create Prometheus configuration: `/etc/prometheus/prometheus.yml`
+
 ```yaml
 global:
   scrape_interval: 15s
@@ -367,6 +403,7 @@ scrape_configs:
 Add all 50+ servers with appropriate module labels. Each module should have its own job or use labels to differentiate.
 
 Create systemd service: `/etc/systemd/system/prometheus.service`
+
 ```ini
 [Unit]
 Description=Prometheus Monitoring System
@@ -394,6 +431,7 @@ WantedBy=multi-user.target
 ```
 
 Start Prometheus:
+
 ```bash
 systemctl daemon-reload
 systemctl enable prometheus
@@ -405,17 +443,27 @@ curl http://localhost:9090/-/healthy
 ```
 
 ### Step 5: Install Grafana (Servers 7-8)
+
 ```bash
 # Add Grafana repository
-wget -q -O - https://packages.grafana.com/gpg.key | apt-key add -
-echo "deb https://packages.grafana.com/oss/deb stable main" | tee /etc/apt/sources.list.d/grafana.list
+cat > /etc/yum.repos.d/grafana.repo << EOF
+[grafana]
+name=grafana
+baseurl=https://packages.grafana.com/oss/rpm
+repo_gpgcheck=1
+enabled=1
+gpgcheck=1
+gpgkey=https://packages.grafana.com/gpg.key
+sslverify=1
+sslcacert=/etc/pki/tls/certs/ca-bundle.crt
+EOF
 
 # Install Grafana
-apt-get update
-apt-get install grafana -y
+dnf install -y grafana
 ```
 
 Configure Grafana: `/etc/grafana/grafana.ini`
+
 ```ini
 [server]
 protocol = http
@@ -474,6 +522,7 @@ execute_alerts = true
 ```
 
 Create datasource provisioning: `/etc/grafana/provisioning/datasources/datasources.yml`
+
 ```yaml
 apiVersion: 1
 
@@ -515,6 +564,7 @@ datasources:
 Replace URLs with your actual load balancer and Prometheus IPs.
 
 Start Grafana:
+
 ```bash
 systemctl daemon-reload
 systemctl enable grafana-server
@@ -527,6 +577,7 @@ systemctl status grafana-server
 ```
 
 ### Step 6: Install Promtail on Application Servers (All 50+ Servers)
+
 ```bash
 # Download Promtail
 cd /opt
@@ -536,17 +587,19 @@ chmod +x promtail-linux-amd64
 mv promtail-linux-amd64 /usr/local/bin/promtail
 
 # Create user and directories
-useradd --no-create-home --shell /bin/false promtail
+useradd --no-create-home --shell /sbin/nologin promtail
 mkdir -p /etc/promtail
 chown -R promtail:promtail /etc/promtail
 
 # Add promtail user to required groups for log access
 usermod -a -G adm promtail
+usermod -a -G systemd-journal promtail
 ```
 
 Create Promtail configuration: `/etc/promtail/config.yml`
 
 Update the `job` label value based on the module (module-1, module-2, etc.):
+
 ```yaml
 server:
   http_listen_port: 9080
@@ -601,7 +654,7 @@ scrape_configs:
           log_type: application
           __path__: /var/log/php*-fpm.log
 
-  - job_name: apache-access-logs
+  - job_name: httpd-access-logs
     static_configs:
       - targets:
           - localhost
@@ -609,11 +662,11 @@ scrape_configs:
           job: module-1
           environment: production
           node: app-server-01
-          application: apache
+          application: httpd
           log_type: access
-          __path__: /var/log/apache2/access.log
+          __path__: /var/log/httpd/access_log
 
-  - job_name: apache-error-logs
+  - job_name: httpd-error-logs
     static_configs:
       - targets:
           - localhost
@@ -621,9 +674,9 @@ scrape_configs:
           job: module-1
           environment: production
           node: app-server-01
-          application: apache
+          application: httpd
           log_type: error
-          __path__: /var/log/apache2/error.log
+          __path__: /var/log/httpd/error_log
 
   - job_name: system-logs
     static_configs:
@@ -634,8 +687,8 @@ scrape_configs:
           environment: production
           node: app-server-01
           application: system
-          log_type: syslog
-          __path__: /var/log/syslog
+          log_type: messages
+          __path__: /var/log/messages
 ```
 
 Important: Update these values for each server:
@@ -644,6 +697,7 @@ Important: Update these values for each server:
 - `__path__`: Actual log file paths on your servers
 
 Create systemd service: `/etc/systemd/system/promtail.service`
+
 ```ini
 [Unit]
 Description=Promtail Log Collector
@@ -665,6 +719,7 @@ WantedBy=multi-user.target
 ```
 
 Start Promtail:
+
 ```bash
 systemctl daemon-reload
 systemctl enable promtail
@@ -676,6 +731,7 @@ curl http://localhost:9080/metrics
 ```
 
 ### Step 7: Install Node Exporter on Application Servers (All 50+ Servers)
+
 ```bash
 # Download Node Exporter
 cd /opt
@@ -684,10 +740,11 @@ tar -xzf node_exporter-1.7.0.linux-amd64.tar.gz
 cp node_exporter-1.7.0.linux-amd64/node_exporter /usr/local/bin/
 
 # Create user
-useradd --no-create-home --shell /bin/false node_exporter
+useradd --no-create-home --shell /sbin/nologin node_exporter
 ```
 
 Create systemd service: `/etc/systemd/system/node_exporter.service`
+
 ```ini
 [Unit]
 Description=Node Exporter
@@ -711,6 +768,7 @@ WantedBy=multi-user.target
 ```
 
 Start Node Exporter:
+
 ```bash
 systemctl daemon-reload
 systemctl enable node_exporter
@@ -756,6 +814,7 @@ For each folder:
   - Module-X-Dev: Viewer (only for their module)
 
 **Alternative: Use Grafana API for Bulk RBAC Setup:**
+
 ```bash
 # Set variables
 GRAFANA_URL="http://grafana-server-ip:3000"
@@ -776,8 +835,6 @@ curl -X POST -H "Content-Type: application/json" \
 curl -X POST -H "Content-Type: application/json" \
   -d '{"name":"SRE"}' \
   http://${ADMIN_USER}:${ADMIN_PASS}@${GRAFANA_URL}/api/teams
-
-# Create folders and set permissions (manual or via API)
 ```
 
 ### Step 9: Create Grafana Dashboard with Variables
@@ -844,6 +901,7 @@ Save dashboard to appropriate module folder with RBAC permissions.
 ### Step 10: Verification and Testing
 
 **Verify Loki Ingestion:**
+
 ```bash
 # Check Loki metrics
 curl http://loki-server:3100/metrics | grep loki_ingester_streams_created_total
@@ -851,7 +909,7 @@ curl http://loki-server:3100/metrics | grep loki_ingester_streams_created_total
 # Query logs via API
 curl -G -s "http://loki-server:3100/loki/api/v1/query_range" \
   --data-urlencode 'query={job="module-1"}' \
-  --data-urlencode 'limit=10' | jq
+  --data-urlencode 'limit=10' | python3 -m json.tool
 ```
 
 **Verify Prometheus Targets:**
@@ -861,6 +919,7 @@ Open Prometheus UI: http://prometheus-server:9090/targets
 Ensure all Node Exporter targets are UP.
 
 **Verify Promtail Status:**
+
 ```bash
 # Check Promtail logs
 journalctl -u promtail -f
@@ -883,11 +942,44 @@ cat /tmp/positions.yaml
 - Verify access only to Module-1 dashboard
 - Attempt to access Module-2 dashboard (should be denied)
 
-### Step 11: Monitoring and Maintenance
+### Step 11: SELinux Configuration (Production Environments)
+
+If using SELinux in enforcing mode:
+
+```bash
+# Create SELinux policy for Loki
+cat > loki.te << EOF
+module loki 1.0;
+
+require {
+    type unconfined_t;
+    type init_t;
+    class file { read write };
+}
+
+allow unconfined_t init_t:file { read write };
+EOF
+
+checkmodule -M -m -o loki.mod loki.te
+semodule_package -o loki.pp -m loki.mod
+semodule -i loki.pp
+
+# Set proper contexts
+semanage fcontext -a -t bin_t "/usr/local/bin/loki"
+semanage fcontext -a -t bin_t "/usr/local/bin/promtail"
+semanage fcontext -a -t bin_t "/usr/local/bin/prometheus"
+restorecon -Rv /usr/local/bin/
+
+# Allow network binding
+setsebool -P nis_enabled 1
+```
+
+### Step 12: Monitoring and Maintenance
 
 **Setup Disk Space Alerts:**
 
-Add to Prometheus `/etc/prometheus/rules/alerts.yml`:
+Create `/etc/prometheus/rules/alerts.yml`:
+
 ```yaml
 groups:
   - name: loki_alerts
@@ -912,15 +1004,25 @@ groups:
           description: "No log ingestion detected for 5 minutes"
 ```
 
+Update Prometheus config to include rules:
+
+```yaml
+rule_files:
+  - "/etc/prometheus/rules/alerts.yml"
+```
+
 **Log Rotation for Loki:**
 
 Add cron job for compaction verification:
+
 ```bash
 # Add to crontab
+crontab -e
 0 */6 * * * systemctl status loki | grep -q "active (running)" || systemctl restart loki
 ```
 
 **Backup Strategy:**
+
 ```bash
 # Backup Grafana dashboards and datasources
 tar -czf grafana-backup-$(date +%Y%m%d).tar.gz /var/lib/grafana/grafana.db /etc/grafana/
@@ -935,6 +1037,7 @@ tar -czf loki-backup-$(date +%Y%m%d).tar.gz /etc/loki/
 ## Troubleshooting
 
 ### Promtail Not Sending Logs
+
 ```bash
 # Check Promtail logs
 journalctl -u promtail -n 100 --no-pager
@@ -943,14 +1046,18 @@ journalctl -u promtail -n 100 --no-pager
 telnet loki-loadbalancer 3100
 
 # Check file permissions
-ls -la /var/log/apache2/
-ls -la /opt/tomcat/logs/
+ls -laZ /var/log/httpd/
+ls -laZ /opt/tomcat/logs/
+
+# Check SELinux denials
+ausearch -m avc -ts recent | grep promtail
 
 # Test Promtail configuration
 promtail -config.file=/etc/promtail/config.yml -dry-run
 ```
 
 ### Loki Not Showing Logs in Grafana
+
 ```bash
 # Check Loki logs
 journalctl -u loki -n 100 --no-pager
@@ -966,6 +1073,7 @@ curl http://grafana-server:3000/api/datasources/proxy/1/loki/api/v1/labels
 ```
 
 ### Prometheus Targets Down
+
 ```bash
 # Check Prometheus logs
 journalctl -u prometheus -n 100 --no-pager
@@ -981,6 +1089,7 @@ promtool check config /etc/prometheus/prometheus.yml
 ```
 
 ### High Disk Usage on Loki
+
 ```bash
 # Check disk usage
 df -h /var/lib/loki
@@ -995,20 +1104,41 @@ curl -X POST http://localhost:3100/loki/api/v1/delete?query={job="old-module"}&s
 grep retention /etc/loki/config.yml
 ```
 
-### Grafana Dashboard Variables Not Working
+### Firewall Issues
+
 ```bash
-# Verify Loki labels exist
-curl -G -s "http://loki-server:3100/loki/api/v1/labels" | jq
+# Check firewall status
+firewall-cmd --list-all
 
-# Check specific label values
-curl -G -s "http://loki-server:3100/loki/api/v1/label/job/values" | jq
+# Check if ports are open
+firewall-cmd --list-ports
 
-# Test query in Grafana Explore before adding to dashboard
+# Test connectivity between servers
+nc -zv loki-server 3100
+nc -zv prometheus-server 9090
+
+# Check for blocked connections
+tail -f /var/log/firewalld
+```
+
+### SELinux Denials
+
+```bash
+# Check for SELinux denials
+ausearch -m avc -ts recent
+
+# Generate SELinux policy from denials
+ausearch -m avc -ts recent | audit2allow -M custom_policy
+semodule -i custom_policy.pp
+
+# Temporarily disable SELinux for testing (not for production)
+setenforce 0
 ```
 
 ## Performance Tuning
 
 ### Loki Optimization
+
 ```yaml
 # Increase ingestion limits for high-volume environments
 limits_config:
@@ -1019,6 +1149,7 @@ limits_config:
 ```
 
 ### Promtail Optimization
+
 ```yaml
 # Batch logs before sending
 clients:
@@ -1028,6 +1159,7 @@ clients:
 ```
 
 ### Prometheus Optimization
+
 ```yaml
 # Adjust scrape intervals based on needs
 global:
@@ -1038,14 +1170,19 @@ global:
 ## Security Recommendations
 
 ### Enable HTTPS for Grafana
+
 ```bash
 # Generate self-signed certificate (use proper CA cert in production)
 openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
   -keyout /etc/grafana/grafana.key \
   -out /etc/grafana/grafana.crt
+
+chown grafana:grafana /etc/grafana/grafana.key /etc/grafana/grafana.crt
+chmod 400 /etc/grafana/grafana.key
 ```
 
 Update `/etc/grafana/grafana.ini`:
+
 ```ini
 [server]
 protocol = https
@@ -1054,16 +1191,20 @@ cert_key = /etc/grafana/grafana.key
 ```
 
 ### Restrict Network Access
+
 ```bash
 # Allow only specific IPs to access Loki
-ufw allow from 10.0.1.0/24 to any port 3100
-ufw allow from 10.0.2.0/24 to any port 3100
+firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="10.0.1.0/24" port port="3100" protocol="tcp" accept'
+firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="10.0.2.0/24" port port="3100" protocol="tcp" accept'
 
 # Allow only Grafana to access Prometheus
-ufw allow from grafana-server-ip to any port 9090
+firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="grafana-server-ip" port port="9090" protocol="tcp" accept'
+
+firewall-cmd --reload
 ```
 
 ### Change Default Passwords
+
 ```bash
 # Change Grafana admin password
 grafana-cli admin reset-admin-password NewSecurePassword123
@@ -1091,6 +1232,7 @@ grafana-cli admin reset-admin-password NewSecurePassword123
 - Test disaster recovery procedures
 
 ## Useful Commands Reference
+
 ```bash
 # Check service status on all servers
 systemctl status loki prometheus grafana-server promtail node_exporter haproxy
@@ -1108,17 +1250,21 @@ curl http://loki-server:3100/ready
 curl http://prometheus-server:9090/-/healthy
 curl http://grafana-server:3000/api/health
 
-# Query Loki from command line
-logcli --addr="http://loki-server:3100" query '{job="module-1"}' --limit=50 --since=1h
-
 # View Promtail positions
 cat /tmp/positions.yaml
 
 # Check Prometheus targets
-curl http://prometheus-server:9090/api/v1/targets | jq
+curl http://prometheus-server:9090/api/v1/targets | python3 -m json.tool
 
 # Reload configurations without restart
 curl -X POST http://prometheus-server:9090/-/reload
+
+# Check firewall rules
+firewall-cmd --list-all
+
+# Check SELinux status
+getenforce
+sestatus
 ```
 
 ## Additional Resources
@@ -1127,3 +1273,4 @@ curl -X POST http://prometheus-server:9090/-/reload
 - Prometheus Documentation: https://prometheus.io/docs/
 - Grafana Documentation: https://grafana.com/docs/grafana/latest/
 - Promtail Documentation: https://grafana.com/docs/loki/latest/clients/promtail/
+- RHEL System Administration: https://access.redhat.com/documentation/
