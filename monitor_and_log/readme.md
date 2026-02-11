@@ -1,3 +1,46 @@
+## Tool Purpose Explanation
+
+**Promtail - Log Collector**
+
+Promtail acts as a shipping agent on each server. It reads log files from applications (Tomcat, PHP) and sends them to a central location. Think of it as a mail carrier picking up letters from individual houses and delivering them to a central post office.
+
+Why needed: Without it, logs stay scattered across 50+ servers making troubleshooting nearly impossible.
+
+---
+
+**Loki - Log Storage and Query Engine**
+
+Loki is the central warehouse that stores all logs sent by Promtail. It indexes logs efficiently and allows fast searching through millions of log lines. Unlike traditional databases, it doesn't index the content of logs but uses labels (like tags) to organize them.
+
+Why needed: Provides a single place to store and search logs from all servers. Handles high volume with minimal resource usage. The 2-day retention policy is configured here.
+
+---
+
+**Prometheus - Metrics Collection and Monitoring**
+
+Prometheus collects numerical metrics from servers like CPU usage, memory consumption, disk space, and application performance. It stores time-series data and can trigger alerts when thresholds are breached.
+
+Why needed: While Loki handles text logs, Prometheus tracks server health and performance numbers. Together they give complete visibility - logs show "what happened" and metrics show "how the system is performing".
+
+---
+
+**Grafana - Visualization Dashboard**
+
+Grafana is the user interface where teams view logs and metrics. It connects to both Loki and Prometheus, allowing users to create dashboards with graphs, charts, and log viewers. The RBAC implementation here controls who can see which module's data.
+
+Why needed: Provides a single glass pane for all teams. DevOps can see everything, while developers see only their module logs. No need to SSH into servers or run command-line queries.
+
+---
+
+**Combined Workflow**
+
+Application generates logs → Promtail ships logs → Loki stores logs → Grafana displays logs
+
+Server generates metrics → Prometheus collects metrics → Grafana displays metrics
+
+Result: Teams troubleshoot issues, monitor application health, and analyze patterns from a web browser without touching production servers directly.
+
+
 ## Architecture Workflow
 
 ```
@@ -628,4 +671,5 @@ Query: label_values(node_uname_info{job="$module_name"}, nodename)
 ```
 
 All configurations provided. Adjust paths, IPs, and credentials as per your environment.
+
 
