@@ -1,35 +1,40 @@
+# Keepalived + HAProxy High Availability Setup
+
+Production-ready Keepalived VRRP configuration for HAProxy using **unicast VRRP** with fast, stable failover.
+
 ---
 
-## Topology (Clear Mapping).
+## Topology
 
 | Role   | Hostname   | IP              |
-| ------ | ---------- | --------------- |
-| MASTER | extlb-01   | `10.150.160.30` |
-| BACKUP | extlb-02   | `10.150.160.31` |
-| VIP    | ext-lb-VIP | `10.150.160.32` |
+|--------|------------|-----------------|
+| MASTER | extlb-01   | 10.150.160.30   |
+| BACKUP | extlb-02   | 10.150.160.31   |
+| VIP    | ext-lb-VIP | 10.150.160.32   |
 
-You are using **unicast VRRP**, which is correct for most data-center / cloud networks.
-
----
-
-## Recommended Improvements (Important)
-
-Before jumping to configs, two **best-practice fixes**:
-
-1. **Do NOT use `killall -0 haproxy`**
-
-   * It can give false positives if multiple processes exist.
-   * Use `pidof` or `systemctl is-active`.
-
-2. **Use `nopreempt` on BACKUP**
-
-   * Prevents flapping when MASTER comes back online.
+- VRRP mode: **Unicast**
+- Failover trigger: **HAProxy health check**
 
 ---
 
-## HAProxy Health Check Script (Recommended)
+## Design Decisions
 
-Create once on **both nodes**:
+### Why Unicast VRRP
+- Multicast is often blocked in DC / cloud networks
+- Predictable peer communication
+- Easier firewall control
+
+### Best Practices Applied
+- No `killall -0 haproxy`
+- HAProxy health verified via `systemctl`
+- `nopreempt` enabled on BACKUP to avoid traffic flaps
+- VIP assigned as `/32` for clean ARP behavior
+
+---
+
+## HAProxy Health Check Script
+
+Create this script on **both nodes**:
 
 ```bash
 cat << 'EOF' > /etc/keepalived/chk_haproxy.sh
@@ -42,7 +47,9 @@ chmod +x /etc/keepalived/chk_haproxy.sh
 
 ---
 
-## MASTER: extlb-01 (`10.150.160.30`)
+## Keepalived Configuration
+
+### MASTER — extlb-01 (10.150.160.30)
 
 ```conf
 vrrp_script chk_haproxy {
@@ -81,7 +88,7 @@ vrrp_instance LB_VIP {
 
 ---
 
-## BACKUP: extlb-02 (`10.150.160.31`)
+### BACKUP — extlb-02 (10.150.160.31)
 
 ```conf
 vrrp_script chk_haproxy {
@@ -118,86 +125,70 @@ vrrp_instance LB_VIP {
     }
 }
 ```
----
-
-The **default vs acceptable vs recommended values** for **Keepalived VRRP**.
-
-
-### Keepalived VRRP – Default & Acceptable Values (Quick Reference)
-
-| Parameter           | Default   | Acceptable Range  | Recommended (Prod)  | Notes                       |
-| ------------------- | --------- | ----------------- | ------------------- | --------------------------- |
-| `advert_int`        | `1`       | `1–3` sec         | `1`                 | Failover ≈ `3 × advert_int` |
-| `priority`          | `100`     | `1–254`           | `101 (M) / 100 (B)` | Higher wins                 |
-| `virtual_router_id` | None      | `1–255`           | `50`                | Must match on both nodes    |
-| `auth_type`         | None      | `PASS`            | `PASS`              | Always enable               |
-| `auth_pass`         | None      | `1–8 chars`       | `******`            | Plaintext only              |
-| `interval` (script) | `1`       | `1–5` sec         | `2`                 | Health-check frequency      |
-| `fall`              | `1`       | `1–10`            | `2`                 | Failures before DOWN        |
-| `rise`              | `1`       | `1–10`            | `1`                 | Successes before UP         |
-| `nopreempt`         | Disabled  | Enabled/Disabled  | Enabled (Backup)    | Prevents VIP flap           |
-| `unicast`           | Multicast | Unicast/Multicast | Unicast             | Preferred in prod           |
-| `virtual_ipaddress` | None      | Valid IP          | `VIP/32`            | Clean ARP behavior          |
-| `interface`         | None      | Valid NIC         | `enp0s3`            | Must exist on both          |
 
 ---
 
-### Legend
+## VRRP Defaults and Recommended Values
 
-* **M** = Master
-* **B** = Backup
-
-This table reflects **safe defaults**, **RFC-aligned behavior**, and **real-world production usage** for HAProxy + Keepalived.
-
----
-
-## How Failover Works (Exactly)
-
-1. **Normal**
-
-   * extlb-01 owns `10.150.160.32`
-2. **HAProxy stops on MASTER**
-
-   * `chk_haproxy` fails
-   * Priority drops
-   * BACKUP takes VIP in ~2 seconds
-3. **MASTER comes back**
-
-   * VIP **does NOT move back** (because of `nopreempt`)
-   * Zero traffic flap
-4. **Manual switch back**
-
-   ```bash
-   systemctl restart keepalived
-   ```
+| Parameter           | Default   | Acceptable Range  | Recommended (Prod)  | Notes |
+|---------------------|-----------|-------------------|---------------------|------|
+| advert_int          | 1         | 1–3 sec           | 1                   | Failover ≈ 3 × advert_int |
+| priority            | 100       | 1–254             | 101 / 100           | Higher wins |
+| virtual_router_id   | None      | 1–255             | 50                  | Must match |
+| auth_type           | None      | PASS              | PASS                | Always enable |
+| auth_pass           | None      | 1–8 chars         | ******              | Plaintext |
+| script interval     | 1         | 1–5 sec           | 2                   | Health check |
+| fall                | 1         | 1–10              | 2                   | Failures before DOWN |
+| rise                | 1         | 1–10              | 1                   | Successes before UP |
+| nopreempt           | Disabled  | Enabled/Disabled  | Enabled (Backup)    | Prevents VIP flap |
+| VRRP mode           | Multicast | Unicast/Multicast | Unicast             | Prod safe |
+| virtual_ipaddress   | None      | Valid IP          | VIP/32              | Clean ARP |
+| interface           | None      | Valid NIC         | ens192              | Must exist |
 
 ---
 
-## Validation Commands
+## Failover Behavior
+
+1. Normal  
+   - extlb-01 owns the VIP
+
+2. HAProxy stops on MASTER  
+   - Health check fails  
+   - Priority drops  
+   - BACKUP takes VIP (~2–3 seconds)
+
+3. MASTER recovers  
+   - VIP does not move back (nopreempt)  
+   - No traffic interruption
+
+4. Manual failback  
 
 ```bash
-ip a show enp0s3 | grep 10.150.160.32
+systemctl restart keepalived
+```
+
+---
+
+## Validation
+
+```bash
+ip a show ens192 | grep 10.150.160.32
 journalctl -u keepalived -f
 ```
 
 ---
 
-## Production Notes (Very Important)
+## Production Notes
 
-* Ensure **firewalld allows VRRP (protocol 112)** or explicitly allows unicast traffic
-* Both nodes must use:
-
-  * Same `virtual_router_id`
-  * Same `auth_pass`
-* Interface name must be **identical on both nodes**
+- Allow VRRP protocol 112 or required unicast traffic in firewalld
+- Both nodes must have:
+  - Same virtual_router_id
+  - Same auth_pass
+  - Same network interface name
+- Test failover before production cutover
 
 ---
 
-If you want, next we can:
+## Status
 
-* Add **email / webhook alerts**
-* Implement **scripted maintenance mode**
-* Integrate **Keepalived + HAProxy stats-based failover**
-* Review **best failover testing strategy for prod**
-
-Just say the word, Boss.
+RFC 5798 aligned, production safe, and flap resistant.
