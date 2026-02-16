@@ -22,7 +22,7 @@ Main script;
 # Script Name: elasticsearch_index_cleanup.sh
 # Description: Delete Elasticsearch indices older than specified retention period
 # Author: DevOps Team
-# Version: 2.0
+# Version: 2.1
 # Usage: ./elasticsearch_index_cleanup.sh [OPTIONS]
 # Options:
 #   --dry-run              : Preview what would be deleted without actually deleting
@@ -266,6 +266,46 @@ extract_date_from_index() {
     return 1
 }
 
+list_found_indices() {
+    local indices_data="$1"
+    local cutoff_date="$2"
+    
+    echo ""
+    echo -e "${BOLD}========================================${NC}"
+    echo -e "${BOLD}  FOUND INDICES${NC}"
+    echo -e "${BOLD}========================================${NC}"
+    printf "%-50s %-15s %-10s\n" "INDEX NAME" "DATE" "ACTION"
+    echo "----------------------------------------"
+    
+    while IFS= read -r line; do
+        # Skip empty lines
+        [[ -z "${line}" ]] && continue
+        
+        # Extract index name (first column)
+        local index
+        index=$(echo "$line" | awk '{print $1}')
+        
+        # Extract date from index name
+        local index_date
+        local action
+        if ! index_date=$(extract_date_from_index "${index}"); then
+            index_date="NO_DATE"
+            action="${YELLOW}SKIP${NC}"
+        elif [[ "${index_date}" < "${cutoff_date}" ]]; then
+            action="${RED}DELETE${NC}"
+        else
+            action="${GREEN}KEEP${NC}"
+        fi
+        
+        printf "%-50s %-15s " "${index}" "${index_date}"
+        echo -e "${action}"
+        
+    done <<< "${indices_data}"
+    
+    echo "----------------------------------------"
+    echo ""
+}
+
 delete_index() {
     local index="$1"
     
@@ -295,6 +335,11 @@ process_indices() {
     local skipped_count=0
     local kept_count=0
     local error_count=0
+    
+    echo ""
+    echo -e "${BOLD}========================================${NC}"
+    echo -e "${BOLD}  PROCESSING INDICES${NC}"
+    echo -e "${BOLD}========================================${NC}"
     
     while IFS= read -r line; do
         # Skip empty lines
@@ -409,11 +454,10 @@ done
 # MAIN EXECUTION
 ############################################
 main() {
-    echo -e "${BOLD}${CYAN}"
-    echo "╔═══════════════════════════════════════════╗"
-    echo "║  Elasticsearch Index Cleanup Script      ║"
-    echo "╚═══════════════════════════════════════════╝"
-    echo -e "${NC}"
+    echo "========================================"
+    echo "  Elasticsearch Index Cleanup Script"
+    echo "========================================"
+    echo ""
     
     # Pre-flight checks
     check_dependencies
@@ -421,7 +465,7 @@ main() {
     
     # Display configuration
     if $DRY_RUN; then
-        echo -e "${YELLOW}${BOLD}⚠ DRY-RUN MODE - No indices will be deleted${NC}"
+        echo -e "${YELLOW}${BOLD}DRY-RUN MODE - No indices will be deleted${NC}"
     fi
     
     log_info "Configuration:"
@@ -457,20 +501,23 @@ main() {
     local index_count
     index_count=$(echo "${indices_data}" | wc -l)
     log_success "Found ${index_count} indices"
-    echo ""
+    
+    # List all found indices
+    list_found_indices "${indices_data}" "${cutoff_date}"
     
     # Process indices
     local counts
     counts=$(process_indices "${indices_data}" "${cutoff_date}")
     
     # Parse counts
+    local total deleted kept skipped errors
     read -r total deleted kept skipped errors <<< "${counts}"
     
     # Print summary
     print_summary "${total}" "${deleted}" "${kept}" "${skipped}" "${errors}"
     
     # Exit with error if there were failures
-    if [[ $errors -gt 0 ]] && [[ $DRY_RUN == false ]]; then
+    if [[ ${errors:-0} -gt 0 ]] && [[ $DRY_RUN == false ]]; then
         exit 1
     fi
     
@@ -549,36 +596,114 @@ export ES_PASS="mypassword"
 ./elasticsearch_index_cleanup.sh --dry-run
 ```
 
-**Output:**
-```
-╔═══════════════════════════════════════════╗
-║  Elasticsearch Index Cleanup Script      ║
-╚═══════════════════════════════════════════╝
+**Output:--dry-run**
+```bash
+[root@elk-monitoring script]# ./elasticsearch_index_cleanup.sh --dry-run
+========================================
+  Elasticsearch Index Cleanup Script
+========================================
 
-⚠ DRY-RUN MODE - No indices will be deleted
+[WARN] jq is not installed. JSON error messages may not be parsed properly.
+DRY-RUN MODE - No indices will be deleted
 [INFO] Configuration:
 [INFO]   Elasticsearch URL: https://localhost:9200
 [INFO]   Username: elastic
 [INFO]   Index pattern: .ds-heartbeat-8.11.0-*
 [INFO]   Retention days: 2
 [INFO]   Cutoff date: 2026.02.14
+[INFO]   (Indices older than this will be deleted)
 
 [INFO] Testing Elasticsearch connection...
 [SUCCESS] Connected to Elasticsearch
 
-[INFO] Fetching indices matching pattern: .ds-heartbeat-8.11.0-*
-[SUCCESS] Found 5 indices
+[SUCCESS] Found 15 indices
 
-[DRY-RUN] Would delete: .ds-heartbeat-8.11.0-2026.02.10-000001 (2026.02.10)
-[DRY-RUN] Would delete: .ds-heartbeat-8.11.0-2026.02.11-000002 (2026.02.11)
+========================================
+  FOUND INDICES
+========================================
+INDEX NAME                                         DATE            ACTION
+----------------------------------------
+[INFO]                                  NO_DATE         SKIP
+.ds-heartbeat-8.11.0-2026.02.10-001843             2026.02.10      DELETE
+.ds-heartbeat-8.11.0-2026.02.10-001856             2026.02.10      DELETE
+.ds-heartbeat-8.11.0-2026.02.10-001857             2026.02.10      DELETE
+.ds-heartbeat-8.11.0-2026.02.11-001858             2026.02.11      DELETE
+.ds-heartbeat-8.11.0-2026.02.11-001859             2026.02.11      DELETE
+.ds-heartbeat-8.11.0-2026.02.11-001860             2026.02.11      DELETE
+.ds-heartbeat-8.11.0-2026.02.12-001861             2026.02.12      DELETE
+.ds-heartbeat-8.11.0-2026.02.12-001862             2026.02.12      DELETE
+.ds-heartbeat-8.11.0-2026.02.12-001863             2026.02.12      DELETE
+.ds-heartbeat-8.11.0-2026.02.13-001864             2026.02.13      DELETE
+.ds-heartbeat-8.11.0-2026.02.13-001865             2026.02.13      DELETE
+.ds-heartbeat-8.11.0-2026.02.13-001866             2026.02.13      DELETE
+.ds-heartbeat-8.11.0-2026.02.13-001867             2026.02.13      DELETE
+.ds-heartbeat-8.11.0-2026.02.15-001868             2026.02.15      KEEP
+----------------------------------------
+
 
 ========================================
         CLEANUP SUMMARY
 ========================================
-Total indices processed: 5
-Would delete:            2
-Kept (newer):            3
-Skipped (no date):       0
+Total indices processed:
+Would delete:
+Kept (newer):
+Skipped (no date):
+========================================
+[root@elk-monitoring script]#
+[root@elk-monitoring script]#
+```
+
+**Output:clean-indices**
+```bash
+[root@elk-monitoring script]# ./elasticsearch_index_cleanup.sh
+========================================
+  Elasticsearch Index Cleanup Script
+========================================
+
+[WARN] jq is not installed. JSON error messages may not be parsed properly.
+[INFO] Configuration:
+[INFO]   Elasticsearch URL: https://localhost:9200
+[INFO]   Username: elastic
+[INFO]   Index pattern: .ds-heartbeat-8.11.0-*
+[INFO]   Retention days: 2
+[INFO]   Cutoff date: 2026.02.14
+[INFO]   (Indices older than this will be deleted)
+
+[INFO] Testing Elasticsearch connection...
+[SUCCESS] Connected to Elasticsearch
+
+[SUCCESS] Found 15 indices
+
+========================================
+  FOUND INDICES
+========================================
+INDEX NAME                                         DATE            ACTION
+----------------------------------------
+[INFO]                                  NO_DATE         SKIP
+.ds-heartbeat-8.11.0-2026.02.10-001843             2026.02.10      DELETE
+.ds-heartbeat-8.11.0-2026.02.10-001856             2026.02.10      DELETE
+.ds-heartbeat-8.11.0-2026.02.10-001857             2026.02.10      DELETE
+.ds-heartbeat-8.11.0-2026.02.11-001858             2026.02.11      DELETE
+.ds-heartbeat-8.11.0-2026.02.11-001859             2026.02.11      DELETE
+.ds-heartbeat-8.11.0-2026.02.11-001860             2026.02.11      DELETE
+.ds-heartbeat-8.11.0-2026.02.12-001861             2026.02.12      DELETE
+.ds-heartbeat-8.11.0-2026.02.12-001862             2026.02.12      DELETE
+.ds-heartbeat-8.11.0-2026.02.12-001863             2026.02.12      DELETE
+.ds-heartbeat-8.11.0-2026.02.13-001864             2026.02.13      DELETE
+.ds-heartbeat-8.11.0-2026.02.13-001865             2026.02.13      DELETE
+.ds-heartbeat-8.11.0-2026.02.13-001866             2026.02.13      DELETE
+.ds-heartbeat-8.11.0-2026.02.13-001867             2026.02.13      DELETE
+.ds-heartbeat-8.11.0-2026.02.15-001868             2026.02.15      KEEP
+----------------------------------------
+
+
+========================================
+        CLEANUP SUMMARY
+========================================
+Total indices processed:
+Deleted:
+Kept (newer):
+Skipped (no date):
 ========================================
 ```
 
