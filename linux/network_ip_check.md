@@ -335,7 +335,7 @@ main() {
 
 main "$@"
 ```
-
+## Run a Script
 ```bash
 chmod +x subnet_scan.sh
 ./subnet_scan.sh 10.13.134.0/24
