@@ -111,7 +111,381 @@ cp ~/Downloads/your_config.ovpn ~/vpn/client.ovpn
 **Step 4 — Download the script**
 
 ```bash
-curl -O https://raw.githubusercontent.com/yourusername/openvpn-otp/main/vpn.sh
+#!/usr/bin/env bash
+# ============================================================
+# Author: Sagar Malla
+# Date: 2024-06-20
+# openvpn-otp-connect.sh
+# Automated OpenVPN login with TOTP/OTP — macOS + Linux
+# Dependencies: openvpn, oathtool
+# ============================================================
+
+set -euo pipefail
+
+# ── Detect Platform ──────────────────────────────────────────
+detect_platform() {
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        PLATFORM="macos"
+    elif grep -qiE "microsoft|wsl" /proc/version 2>/dev/null; then
+        PLATFORM="wsl"
+    elif [[ "$(uname -s)" == "Linux" ]]; then
+        PLATFORM="linux"
+    else
+        PLATFORM="unknown"
+    fi
+}
+
+detect_platform
+
+# ── Static Defaults (override via env vars) ──────────────────
+VPN_CONFIG="${OPENVPN_CONFIG:-/Users/sagarmalla/sagar.malla__ssl_vpn_config.ovpn}"
+VPN_USER="${OPENVPN_USER:-your_VPN_user_name_here}"
+VPN_PASS="${OPENVPN_PASS:-your_VPN_user_password_here}"
+TOTP_SECRET="${TOTP_SECRET:-your_VPN_TOTP_secret_here}" # e.g JBxxxxxxxxPXP
+AUTH_FILE="/tmp/.vpn_auth_$$"
+LOG_FILE="/tmp/openvpn.log"
+MAX_RETRIES="${OPENVPN_RETRIES:-3}"
+RETRY_DELAY="${OPENVPN_RETRY_DELAY:-5}"
+
+# ── Colours ──────────────────────────────────────────────────
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+BLUE='\033[0;34m'
+BOLD='\033[1m'
+DIM='\033[2m'
+NC='\033[0m'
+
+# ── Logging helpers ───────────────────────────────────────────
+info()    { echo -e "${GREEN}  [OK]   ${NC}${BOLD}$*${NC}"; }
+warn()    { echo -e "${YELLOW}  [WARN] ${NC}${YELLOW}$*${NC}"; }
+error()   { echo -e "${RED}  [ERR]  ${NC}${RED}${BOLD}$*${NC}" >&2; }
+step()    { echo -e "${CYAN}  [....] ${NC}${BOLD}$*${NC}"; }
+dim()     { echo -e "${DIM}         $*${NC}"; }
+section() {
+    echo ""
+    echo -e "${BLUE}${BOLD}  ════════════════════════════════${NC}"
+    echo -e "${BLUE}${BOLD}    $*${NC}"
+    echo -e "${BLUE}${BOLD}  ════════════════════════════════${NC}"
+}
+
+# ── Cleanup ───────────────────────────────────────────────────
+cleanup() {
+    rm -f "$AUTH_FILE"
+    dim "Temp auth file removed."
+}
+trap cleanup EXIT INT TERM
+
+# ── Dependency check ──────────────────────────────────────────
+check_deps() {
+    section "Checking Dependencies  [platform: $PLATFORM]"
+    local missing=()
+
+    for cmd in openvpn oathtool; do
+        if command -v "$cmd" &>/dev/null; then
+            info "$cmd is installed"
+            dim "$(command -v "$cmd")"
+        else
+            error "$cmd is not installed"
+            missing+=("$cmd")
+        fi
+    done
+
+    # Check network tool per platform
+    if [[ "$PLATFORM" == "macos" ]]; then
+        if command -v ifconfig &>/dev/null; then
+            info "ifconfig is available"
+        else
+            error "ifconfig not found"
+            missing+=("ifconfig")
+        fi
+    else
+        # Linux / WSL — prefer ip, fallback to ifconfig
+        if command -v ip &>/dev/null; then
+            info "ip is available"
+        elif command -v ifconfig &>/dev/null; then
+            info "ifconfig is available (fallback)"
+        else
+            error "No network tool found (ip or ifconfig)"
+            missing+=("iproute2 or net-tools")
+        fi
+    fi
+
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        echo ""
+        warn "Install missing dependencies:"
+        if [[ "$PLATFORM" == "macos" ]]; then
+            dim "brew install openvpn oath-toolkit"
+        elif [[ "$PLATFORM" == "wsl" ]]; then
+            dim "sudo apt install openvpn oathtool iproute2"
+            dim "Note: WSL may need extra steps — see WSL notes below"
+        else
+            dim "sudo apt install openvpn oathtool iproute2    # Debian/Ubuntu"
+            dim "sudo dnf install openvpn oathtool iproute     # Fedora/RHEL"
+        fi
+        exit 1
+    fi
+}
+
+# ── Validate config ───────────────────────────────────────────
+validate_config() {
+    section "Validating Configuration"
+    local errors=0
+
+    if [[ -n "$VPN_USER" ]]; then
+        info "Username     : $VPN_USER"
+    else
+        error "VPN_USER is empty"
+        (( errors++ ))
+    fi
+
+    if [[ -n "$VPN_PASS" ]]; then
+        info "Password     : ${VPN_PASS:0:2}$(printf '*%.0s' {1..5})  (masked)"
+    else
+        error "VPN_PASS is empty"
+        (( errors++ ))
+    fi
+
+    if [[ -z "$TOTP_SECRET" ]]; then
+        error "TOTP_SECRET is empty"
+        (( errors++ ))
+    elif [[ ${#TOTP_SECRET} -lt 16 ]]; then
+        error "TOTP_SECRET looks too short — check your Base32 secret"
+        (( errors++ ))
+    else
+        info "TOTP Secret  : ${TOTP_SECRET:0:4}$(printf '*%.0s' {1..10})  (masked)"
+    fi
+
+    if [[ -f "$VPN_CONFIG" ]]; then
+        info "VPN Config   : $VPN_CONFIG"
+    else
+        error "VPN config not found: $VPN_CONFIG"
+        dim "Set OPENVPN_CONFIG=/path/to/your.ovpn"
+        (( errors++ ))
+    fi
+
+    info "Platform     : $PLATFORM"
+    dim "Log File     : $LOG_FILE"
+    dim "Max Retries  : $MAX_RETRIES"
+
+    if [[ $errors -gt 0 ]]; then
+        echo ""
+        error "Found $errors error(s). Fix them and retry."
+        exit 1
+    fi
+}
+
+# ── Generate OTP ──────────────────────────────────────────────
+generate_otp() {
+    local otp
+    if ! otp=$(oathtool --base32 --totp "$TOTP_SECRET" 2>/dev/null); then
+        error "Failed to generate OTP — check your TOTP_SECRET is valid Base32"
+        exit 1
+    fi
+    echo "$otp"
+}
+
+# ── Write auth file ───────────────────────────────────────────
+write_auth_file() {
+    local otp="$1"
+    install -m 600 /dev/null "$AUTH_FILE"
+    printf '%s\n%s%s\n' "$VPN_USER" "$VPN_PASS" "$otp" > "$AUTH_FILE"
+    dim "Auth file -> $AUTH_FILE  [chmod 600]"
+}
+
+# ── Tunnel detection (cross-platform) ────────────────────────
+tunnel_is_up() {
+    if [[ "$PLATFORM" == "macos" ]]; then
+        # macOS uses utun0, utun1, utun2 ...
+        ifconfig 2>/dev/null | grep -q "^utun\|^tun"
+    elif command -v ip &>/dev/null; then
+        # Linux / WSL with iproute2
+        ip link show 2>/dev/null | grep -q "^[0-9]*: tun"
+    else
+        # Linux fallback using ifconfig
+        ifconfig 2>/dev/null | grep -q "^tun"
+    fi
+}
+
+# ── Get tunnel interface name and IP ─────────────────────────
+get_tunnel_info() {
+    local iface vpn_ip
+
+    if [[ "$PLATFORM" == "macos" ]]; then
+        iface=$(ifconfig 2>/dev/null | grep -o "^utun[0-9]*\|^tun[0-9]*" | head -1)
+        vpn_ip=$(ifconfig "$iface" 2>/dev/null | awk '/inet /{print $2}')
+    elif command -v ip &>/dev/null; then
+        iface=$(ip link show 2>/dev/null | awk -F': ' '/tun/{print $2; exit}')
+        vpn_ip=$(ip addr show "$iface" 2>/dev/null | awk '/inet /{gsub(/\/.*/, "", $2); print $2}')
+    else
+        iface=$(ifconfig 2>/dev/null | grep -o "^tun[0-9]*" | head -1)
+        vpn_ip=$(ifconfig "$iface" 2>/dev/null | awk '/inet /{print $2}')
+    fi
+
+    echo "$iface $vpn_ip"
+}
+
+# ── Wait for tunnel ───────────────────────────────────────────
+wait_for_tunnel() {
+    local timeout=30 elapsed=0
+    step "Waiting for tunnel interface..."
+
+    while [[ $elapsed -lt $timeout ]]; do
+        if tunnel_is_up; then
+            echo ""
+            read -r iface vpn_ip <<< "$(get_tunnel_info)"
+            info "Tunnel is UP  ->  ${BOLD}$iface${NC}  ${GREEN}($vpn_ip)${NC}"
+            return 0
+        fi
+        printf "\r${CYAN}  [....]${NC}${DIM}  Waiting... ${elapsed}s${NC}"
+        sleep 1
+        (( elapsed++ ))
+    done
+
+    echo ""
+    warn "Tunnel did not appear within ${timeout}s — check $LOG_FILE"
+    return 1
+}
+
+# ── Connect ───────────────────────────────────────────────────
+connect() {
+    section "Connecting to VPN"
+
+    # WSL warning
+    if [[ "$PLATFORM" == "wsl" ]]; then
+        warn "WSL detected — OpenVPN may require additional WSL2 kernel support."
+        dim "If connection fails, consider running the script natively on Linux."
+        echo ""
+    fi
+
+    local attempt=1
+    while [[ $attempt -le $MAX_RETRIES ]]; do
+        step "Attempt $attempt / $MAX_RETRIES"
+
+        local otp
+        otp=$(generate_otp)
+        info "OTP generated -> ${otp:0:2}****  (masked)"
+
+        write_auth_file "$otp"
+
+        if sudo openvpn \
+            --config         "$VPN_CONFIG" \
+            --auth-user-pass "$AUTH_FILE" \
+            --log            "$LOG_FILE" \
+            --daemon 2>/dev/null; then
+
+            if wait_for_tunnel; then
+                section "VPN Connected"
+                info "Status   : Connected"
+                info "Platform : $PLATFORM"
+                info "Log      : $LOG_FILE"
+                echo ""
+                dim "To disconnect run:  sudo pkill -f openvpn"
+                echo ""
+                return 0
+            fi
+        fi
+
+        if [[ $attempt -lt $MAX_RETRIES ]]; then
+            warn "Attempt $attempt failed — retrying in ${RETRY_DELAY}s..."
+            sleep "$RETRY_DELAY"
+        fi
+        (( attempt++ ))
+    done
+
+    section "Connection Failed"
+    error "All $MAX_RETRIES attempts failed."
+    dim "Check logs: cat $LOG_FILE"
+    exit 1
+}
+
+# ── Disconnect ────────────────────────────────────────────────
+disconnect() {
+    section "Disconnecting VPN"
+    if pgrep -f "openvpn" &>/dev/null; then
+        step "Sending SIGTERM to OpenVPN..."
+        sudo pkill -SIGTERM -f "openvpn"
+        sleep 1
+        if ! pgrep -f "openvpn" &>/dev/null; then
+            info "VPN disconnected successfully."
+        else
+            warn "Process still running — force killing..."
+            sudo pkill -9 -f "openvpn" || true
+        fi
+    else
+        warn "No OpenVPN process found — already disconnected."
+    fi
+}
+
+# ── Status ────────────────────────────────────────────────────
+status() {
+    section "VPN Status  [platform: $PLATFORM]"
+    if pgrep -f "openvpn" &>/dev/null; then
+        local pid
+        pid=$(pgrep -f openvpn | head -1)
+        info "OpenVPN is running  (PID: $pid)"
+        if tunnel_is_up; then
+            read -r iface vpn_ip <<< "$(get_tunnel_info)"
+            info "Tunnel Interface : ${BOLD}$iface${NC}"
+            info "VPN IP Address   : ${BOLD}${GREEN}$vpn_ip${NC}"
+        else
+            warn "No tunnel interface found."
+        fi
+    else
+        warn "OpenVPN is NOT running."
+    fi
+    echo ""
+}
+
+# ── Usage ─────────────────────────────────────────────────────
+usage() {
+    echo ""
+    echo -e "${BOLD}  Usage:${NC}  $(basename "$0")  ${CYAN}[connect|disconnect|status|help]${NC}"
+    echo ""
+    echo -e "${BOLD}  Override defaults via environment variables:${NC}"
+    echo -e "  ${DIM}OPENVPN_CONFIG${NC}       Path to .ovpn file"
+    echo -e "  ${DIM}OPENVPN_USER${NC}         VPN username"
+    echo -e "  ${DIM}OPENVPN_PASS${NC}         VPN password"
+    echo -e "  ${DIM}TOTP_SECRET${NC}          Base32 TOTP secret (min 16 chars)"
+    echo -e "  ${DIM}OPENVPN_RETRIES${NC}      Max retries              (default: 3)"
+    echo -e "  ${DIM}OPENVPN_RETRY_DELAY${NC}  Delay between retries in seconds (default: 5)"
+    echo ""
+    echo -e "${BOLD}  Examples:${NC}"
+    echo -e "  $(basename "$0") connect"
+    echo -e "  $(basename "$0") disconnect"
+    echo -e "  $(basename "$0") status"
+    echo -e "  TOTP_SECRET=NEWKEY $(basename "$0") connect"
+    echo ""
+    echo -e "${BOLD}  Platform install guides:${NC}"
+    echo -e "  ${DIM}macOS  :${NC}  brew install openvpn oath-toolkit"
+    echo -e "  ${DIM}Ubuntu :${NC}  sudo apt install openvpn oathtool iproute2"
+    echo -e "  ${DIM}Fedora :${NC}  sudo dnf install openvpn oathtool iproute"
+    echo -e "  ${DIM}WSL    :${NC}  sudo apt install openvpn oathtool iproute2"
+    echo ""
+}
+
+# ── Entry point ───────────────────────────────────────────────
+main() {
+    local cmd="${1:-connect}"
+    case "$cmd" in
+        connect)
+            check_deps
+            validate_config
+            connect
+            ;;
+        disconnect) disconnect ;;
+        status)     status ;;
+        help|--help|-h) usage ;;
+        *)
+            error "Unknown command: '$cmd'"
+            usage
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"
 ```
 
 Or create it manually:
