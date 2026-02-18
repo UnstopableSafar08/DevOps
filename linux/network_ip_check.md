@@ -370,6 +370,29 @@ E.g. OUTPUT:
 [OK]    10.13.134.11 -- Ping OK
 [OK]    10.13.134.11 -- Port 22 OPEN
 [OK]    10.13.134.12 -- Ping OK
+.
+.
+.
+[ERROR] 10.13.134.248 -- Host UNREACHABLE
+[ERROR] 10.13.134.249 -- Host UNREACHABLE
+[ERROR] 10.13.134.250 -- Host UNREACHABLE
+[ERROR] 10.13.134.251 -- Host UNREACHABLE
+[ERROR] 10.13.134.252 -- Host UNREACHABLE
+[ERROR] 10.13.134.253 -- Host UNREACHABLE
+[ERROR] 10.13.134.254 -- Host UNREACHABLE
+
+------------------------------------------------------------
+  Scan Summary
+------------------------------------------------------------
+[STAT] Total hosts scanned : 254
+[STAT] Hosts up (ping OK)  : 61
+[STAT] Hosts down          : 193
+[STAT] Port 22 open        : 52
+[STAT] Port 22 closed/filt : 9
+[STAT] Log file saved to   : subnet_scan_20260218.log
+[STAT] Reachable hosts     : ping_telnet_ok.txt
+[STAT] Unreachable hosts   : unreachable_ip_port.txt
+------------------------------------------------------------
 ```
 
 LOGS_file:
