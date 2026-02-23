@@ -1,5 +1,10 @@
 #!/bin/bash
 # =============================================================
+#
+# Author      : Sagar Malla
+# Email       : sagarmalla08@gmail.com
+# Date        : 23 Feb, 2026
+
 # Script Name  : build.sh
 # Description  : Builds the aws-k8s-helm Docker image locally
 #                and verifies AWS CLI, kubectl, and Helm tools
