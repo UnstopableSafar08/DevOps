@@ -65,7 +65,8 @@ vrrp_instance LB_VIP {
     virtual_router_id 50
     priority 101
     advert_int 1
-
+    # preempt_delay 10 # wait 10 sec to get VIP
+    
     unicast_src_ip 10.150.160.30
     unicast_peer {
         10.150.160.31
@@ -104,7 +105,7 @@ vrrp_instance LB_VIP {
     virtual_router_id 50
     priority 100
     advert_int 1
-    nopreempt
+    # nopreempt # if this enable, the VIP does not move to MASTER automatically.
 
     unicast_src_ip 10.150.160.31
     unicast_peer {
