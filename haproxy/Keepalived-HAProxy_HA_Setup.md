@@ -67,9 +67,9 @@ vrrp_instance LB_VIP {
     advert_int 1
     # preempt_delay 10 # wait 10 sec to get VIP
     
-    unicast_src_ip 10.150.160.30
+    unicast_src_ip 10.150.160.30    # This node's own IP (MASTER)
     unicast_peer {
-        10.150.160.31
+        10.150.160.31               # BACKUP node IP — send heartbeats directly here
     }
 
     authentication {
@@ -107,9 +107,9 @@ vrrp_instance LB_VIP {
     advert_int 1
     # nopreempt # if this enable, the VIP does not move to MASTER automatically.
 
-    unicast_src_ip 10.150.160.31
+    unicast_src_ip 10.150.160.31    # This node's own IP (MASTER)
     unicast_peer {
-        10.150.160.30
+        10.150.160.30               # BACKUP node IP — send heartbeats directly here
     }
 
     authentication {
