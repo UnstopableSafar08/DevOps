@@ -188,6 +188,30 @@ journalctl -u keepalived -f
   - Same network interface name
 - Test failover before production cutover
 
+
+
+
+## Preempt Behavior Scenarios
+
+| Scenario | Config | MASTER Down | MASTER Recovers | Disruptions | Best For |
+|---|---|---|---|---|---|
+| **Default (Preempt)** | No `nopreempt`, no `preempt_delay` | VIP moves to BACKUP | VIP moves back to MASTER immediately | 2x | Dev/test environments |
+| **Preempt Delay** | `preempt_delay 30` on MASTER | VIP moves to BACKUP | VIP moves back after 30s grace period | 2x (delayed) | When you want auto failback with a buffer |
+| **No Preempt (BACKUP only)** | `nopreempt` on BACKUP only | VIP moves to BACKUP | VIP moves back to MASTER (BACKUP won't fight back) | 2x | Misleading — same as default |
+| **No Preempt (both nodes)** | `nopreempt` on both | VIP moves to BACKUP | VIP stays on BACKUP | 1x | Production recommended |
+| **No Preempt + Manual Failback** | `nopreempt` on both + `systemctl restart keepalived` on BACKUP | VIP moves to BACKUP | VIP returns to MASTER only on manual trigger | Controlled | Production with change control |
+
+---
+
+## Key Takeaway
+
+| Priority | `nopreempt` on MASTER | `nopreempt` on BACKUP | Result |
+|---|---|---|---|
+| 101 / 100 | No | No | VIP always follows highest priority |
+| 101 / 100 | No | Yes | VIP still returns to MASTER (MASTER forces it) |
+| 101 / 100 | Yes | No | VIP stays on BACKUP |
+| 101 / 100 | Yes | Yes | VIP stays wherever it is — safest production config |
+
 ---
 
 ## Status
