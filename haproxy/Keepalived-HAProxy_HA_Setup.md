@@ -24,6 +24,19 @@ Production-ready Keepalived VRRP configuration for HAProxy using **unicast VRRP*
 - Predictable peer communication
 - Easier firewall control
 
+| Topic | Multicast | Unicast |
+|---|---|---|
+| How it works | Sends heartbeats to group address `224.0.0.18` | Sends heartbeats directly to peer IP `10.150.160.31` |
+| Who receives the heartbeat | Every device on the subnet | Only the peer node |
+| Requires multicast support | Yes | No |
+| Works in cloud networks (AWS, Azure) | No | Yes |
+| Works in VMware / virtual switches | Often blocked | Yes |
+| Works in datacenter networks | Often blocked | Yes |
+| Firewall control | Harder, subnet-wide | Easy, only between two IPs |
+| Predictability | Less predictable | Fully predictable |
+| Configuration complexity | Simpler | Slightly more explicit |
+| Production safe | Not always | Yes |
+
 ### Best Practices Applied
 - No `killall -0 haproxy`
 - HAProxy health verified via `systemctl`
