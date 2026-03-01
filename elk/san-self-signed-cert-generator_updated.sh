@@ -30,7 +30,6 @@ RESET='\033[0m'
 #  GLOBAL CONSTANTS
 # ─────────────────────────────────────────────
 CERTS_DIR="/etc/elasticsearch/certs"
-ES_DIR="/etc/elasticsearch"
 ELASTICSEARCH_BIN="/usr/share/elasticsearch/bin/elasticsearch-certutil"
 KEYSTORE_BIN="/usr/share/elasticsearch/bin/elasticsearch-keystore"
 CHAR_SET='A-Za-z0-9@#*\-+!'
@@ -224,7 +223,11 @@ prompt_domain() {
 generate_password() {
     log_step "Generating Secure Password"
 
+    # Temporarily disable pipefail: `tr | head` triggers SIGPIPE when head exits
+    # after reading 20 bytes. Under `set -o pipefail` that non-zero exit kills the script.
+    set +o pipefail
     RANDOM_PASS=$(tr -dc "$CHAR_SET" </dev/urandom | head -c 20)
+    set -o pipefail
 
     if [ -z "$RANDOM_PASS" ]; then
         log_error "Failed to generate a random password."
@@ -411,8 +414,7 @@ generate_truststore() {
 fix_permissions() {
     log_step "Setting File Permissions"
 
-    sudo chown -R elasticsearch:elasticsearch "$CERTS_DIR"
-    sudo chown -R elasticsearch:elasticsearch "$ES_DIR"
+    sudo chown elasticsearch:elasticsearch "$CERTS_DIR"/*
     sudo chmod 640 "$CERTS_DIR"/*.key
     sudo chmod 644 "$CERTS_DIR"/*.crt
     sudo chmod 640 "$CERTS_DIR/truststore.p12"
