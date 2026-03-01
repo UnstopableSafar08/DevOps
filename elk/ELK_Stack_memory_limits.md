@@ -31,6 +31,18 @@ vi /etc/elasticsearch/jvm.options
 -Xmx8g
 ```
 
+
+# Enable the 
+```bash
+bootstrap.memory_lock: true
+```
+
+When enabled:
+- Elasticsearch calls mlockall()
+- OS prevents heap memory from being swapped
+- Memory stays resident in RAM
+
+
 ## 2. Kibana (Node.js)
 
 **Recommended Heap:** 1 GB, System Memory Limit: 2 GB
