@@ -396,7 +396,7 @@ Add service token on `kibana node` (This will be deprecated on the latest versio
 #### Copy the certificate to the kibana dir.
    ```bash
     # Create a certs dir
-    mkdir -p /etc/elasticsearch/certs
+    mkdir -p /etc/kibana/certs
     
     # Copy the certs from elasticsearch to kibana
     cp /etc/elasticsearch/certs/ca_elk.local.crt /etc/kibana/certs/.
