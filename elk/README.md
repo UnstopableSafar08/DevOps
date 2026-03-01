@@ -623,6 +623,8 @@ Add service token on `kibana node` (This will be deprecated on the latest versio
      username: "elastic"
      password: "<elastic_password>"
      ssl.certificate_authorities: ["/etc/metricbeat/certs/ca_elk.local.crt"]
+     # ssl.verification_mode: "none" # This bypasses all SSL checks
+     # ssl.verification_mode: "certificate" #  if you have the ca.crt file. It's safer because it still verifies that the server belongs to your infrastructure.
    ```
   ### Memory limits
   ```bash
