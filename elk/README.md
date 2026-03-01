@@ -99,6 +99,7 @@ Expanation:
    ```bash
    # Download the RPM files.
    cd /tmp
+   wget "https://download.bell-sw.com/java/21.0.7+9/bellsoft-jdk21.0.7+9-linux-amd64.tar.gz"
    wget https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-8.17.0-x86_64.rpm
    wget https://artifacts.elastic.co/downloads/logstash/logstash-8.17.0-x86_64.rpm
    wget https://artifacts.elastic.co/downloads/kibana/kibana-8.17.0-x86_64.rpm
@@ -121,7 +122,9 @@ Expanation:
 
 ## Certificate Generation.
 
-Certificate Generator (Automatically steps 2 to 6) : <a href="https://github.com/UnstopableSafar08/elk/blob/main/san-self-signed-cert-generator.sh" target="_blank">LINK</a>
+Certificate Generator (Automatically steps 2 to 6) : 
+<a href="https://github.com/UnstopableSafar08/DevOps/blob/main/elk/san-self-signed-cert-generator_updated.sh" target="_blank"> Updated_Script </a> | 
+<a href="https://github.com/UnstopableSafar08/DevOps/blob/main/san-self-signed-cert-generator.sh" target="_blank">LINK</a>
 
 A. **Certificate Architecture**:
    ```bash
