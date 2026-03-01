@@ -367,6 +367,15 @@ A. **Certificate Architecture**:
    # OR set the desired password one by one.
    /usr/share/elasticsearch/bin/elasticsearch-reset-password -i -u elastic
    /usr/share/elasticsearch/bin/elasticsearch-reset-password -i -u kibana_system
+
+
+   # To reset the password for the elastic user, run the following command:
+   # Solution for the error : failed to establish trust with server at [10.10.10.10] | No subject alternative names matching IP address 10.10.10.10 found 
+   sudo -u elasticsearch /usr/share/elasticsearch/bin/elasticsearch-reset-password -i -u elastic --url "https://localhost:9200"
+   # elastic@12345#
+
+   sudo -u elasticsearch /usr/share/elasticsearch/bin/elasticsearch-reset-password -i -u kibana_system --url "https://localhost:9200"
+   # kibana@12345#
    ```
 
 ## Configure Kibana
