@@ -15,6 +15,7 @@ cat << EOF > /etc/systemd/system/elasticsearch.service.d/override.conf
 [Service]
 Environment="ES_JAVA_OPTS=-Xms1g -Xmx1g"
 # MemoryMax=2G # Kill the process if total memory exceeds 2GB
+LimitMEMLOCK=infinity
 EOF
 systemctl daemon-reexec
 systemctl restart elasticsearch
