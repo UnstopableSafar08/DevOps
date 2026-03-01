@@ -123,8 +123,8 @@ Expanation:
 ## Certificate Generation.
 
 Certificate Generator (Automatically steps 2 to 6) : 
-<a href="https://github.com/UnstopableSafar08/DevOps/blob/main/elk/san-self-signed-cert-generator_updated.sh" target="_blank"> Updated_Script </a> | 
-<a href="https://github.com/UnstopableSafar08/DevOps/blob/main/san-self-signed-cert-generator.sh" target="_blank">LINK</a>
+<a href="https://github.com/UnstopableSafar08/DevOps/blob/main/elk/san-self-signed-cert-generator_updated.sh" target="_blank"> Updated_Script_LINK_01 </a> | 
+<a href="https://github.com/UnstopableSafar08/DevOps/blob/main/san-self-signed-cert-generator.sh" target="_blank">OLD_LINK_02</a>
 
 A. **Certificate Architecture**:
    ```bash
