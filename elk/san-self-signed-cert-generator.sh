@@ -10,6 +10,20 @@
 
 set -e
 
+
+# backup logic
+
+sudo mkdir -p /etc/elasticsearch/certs/backup
+sudo chown root:elasticsearch /etc/elasticsearch/certs/backup
+sudo chmod 770 /etc/elasticsearch/certs/backup
+
+
+sudo find /etc/elasticsearch/certs/ -maxdepth 1 -type f \
+  ! -name "http_ca.crt" \
+  ! -name "http.p12" \
+  ! -name "transport.p12" \
+  -exec mv {} /etc/elasticsearch/certs/backup/ \;
+
 # Ask for domain name
 read -p "Enter your base domain (e.g. sagar.com.np or sagar.com): " USER_DOMAIN
 WILDCARD="*.$USER_DOMAIN"
@@ -45,6 +59,8 @@ echo -e "# Saved to pass.txt as: $TIMESTAMP - $RANDOM_PASS\n\n"
 CA_PASS="$RANDOM_PASS"
 CERT_PASS="$RANDOM_PASS"
 TRUSTSTORE_PASS="$RANDOM_PASS"
+HOST_IP=$(hostname -I | awk '{print $1}')
+
 
 # Step 1: Ensure certs directory exists
 sudo mkdir -p "$CERTS_DIR"
@@ -59,6 +75,8 @@ instances:
       - "$WILDCARD"
       - "$USER_DOMAIN"
       - "localhost"
+    ip:
+      - "$HOST_IP"      
 EOF
 
 # Step 3: Create CA if not exists
