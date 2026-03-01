@@ -462,6 +462,9 @@ Add service token on `kibana node` (This will be deprecated on the latest versio
    
 2. **Start Kibana**:
    ```bash
+   sudo chown -R kibana:kibana /etc/kibana
+   sudo chown -R kibana:kibana /usr/share/kibana
+   
    #   Troubleshooting : Start and check the logs.
    sudo systemctl daemon-reexec ; sudo -u kibana /usr/share/kibana/bin/kibana
    
