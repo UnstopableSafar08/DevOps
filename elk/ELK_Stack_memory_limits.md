@@ -40,7 +40,7 @@ mkdir -p /etc/systemd/system/kibana.service.d
 cat << EOF > /etc/systemd/system/kibana.service.d/override.conf
 [Service]
 Environment="NODE_OPTIONS=--max-old-space-size=1024"
-MemoryMax=2G
+# MemoryMax=2G # Kill the process if total memory exceeds 2GB
 EOF
 systemctl daemon-reexec
 systemctl restart kibana
