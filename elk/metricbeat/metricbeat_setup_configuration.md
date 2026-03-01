@@ -60,6 +60,10 @@ output.elasticsearch:
   # ssl.certificate_authorities: ["/etc/metricbeat/certs/ca_elk.local.crt"]
   # ssl.verification_mode: full
 
+  ## if the elasticsearch has a self-signed cert then to bypass on the internal communication.
+  # ssl.verification_mode: "none" # This bypasses all SSL checks
+  # ssl.verification_mode: "certificate" #  if you have the ca.crt file. It's safer because it still verifies that the server belongs to your infrastructure.
+
 processors:
   - add_host_metadata: ~
   - add_cloud_metadata: ~
@@ -135,6 +139,10 @@ systemctl status metricbeat
   # hosts: ["https://localhost:9200"]
   # ssl.enabled: true
   # ssl.certificate_authorities: ["/etc/metricbeat/certs/ca_elk.local.crt"]
+
+  ## if the elasticsearch has a self-signed cert then to bypass on the internal communication.
+  # ssl.verification_mode: "none" # This bypasses all SSL checks
+  # ssl.verification_mode: "certificate" #  if you have the ca.crt file. It's safer because it still verifies that the server belongs to your infrastructure.
 ```
 
 ---
@@ -153,6 +161,10 @@ systemctl status metricbeat
   # hosts: ["https://localhost:9200"]
   # ssl.enabled: true
   # ssl.certificate_authorities: ["/etc/metricbeat/certs/ca_elk.local.crt"]
+
+  ## if the elasticsearch has a self-signed cert then to bypass on the internal communication.
+  # ssl.verification_mode: "none" # This bypasses all SSL checks
+  # ssl.verification_mode: "certificate" #  if you have the ca.crt file. It's safer because it still verifies that the server belongs to your infrastructure.
 ```
 
 ---
