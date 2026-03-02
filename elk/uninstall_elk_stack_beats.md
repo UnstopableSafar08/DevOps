@@ -6,45 +6,14 @@
 **Platform:** RHEL / CentOS / Rocky Linux / AlmaLinux (RPM-based systems)
 
 ---
-
-## Table of Contents
-
-1. [Prerequisites](#prerequisites)
-2. [Before You Begin](#before-you-begin)
-3. [Uninstall Elasticsearch](#uninstall-elasticsearch)
-4. [Uninstall Kibana](#uninstall-kibana)
-5. [Uninstall Logstash](#uninstall-logstash)
-6. [Uninstall Filebeat](#uninstall-filebeat)
-7. [Uninstall Metricbeat](#uninstall-metricbeat)
-8. [Uninstall Packetbeat](#uninstall-packetbeat)
-9. [Uninstall Heartbeat](#uninstall-heartbeat)
-10. [Uninstall Auditbeat](#uninstall-auditbeat)
-11. [Remove the Elastic YUM Repository](#remove-the-elastic-yum-repository)
-12. [Remove GPG Key](#remove-gpg-key)
-13. [Verify Complete Removal](#verify-complete-removal)
-14. [Post-Removal Checklist](#post-removal-checklist)
-
----
-
-## Prerequisites
-
-- Root or sudo access on the target machine.
-- All running services should be identified before removal to avoid disrupting dependent applications.
-- Take a snapshot or backup of any data you may need before proceeding.
-
-To confirm you are running as root:
-
-```bash
-whoami
-```
-
-If not root, prefix all commands with `sudo` or switch to root:
-
-```bash
-sudo -i
-```
-
 ## Shell script file.
+
+Create a script file `elk_and_beats_uninstall.sh`.
+```bash
+vi  elk_and_beats_uninstall.sh
+```
+
+Script contents.
 ```bash
 #!/bin/bash
 # =================================================================================
@@ -271,7 +240,116 @@ print_success "Interactive ELK/Beats uninstall completed."
 ```
 
 
+### Here is a summarized breakdown of what the script does:
 
+**1. Pre-flight checks**
+Verifies the script is running as root, sets up color-coded output labels, and creates the backup directory `/var/backups/elk_uninstall`.
+
+**2. Tool detection**
+Loops through 8 ELK and Beats packages and uses `rpm -q` to check which ones are actually installed. Uninstalled tools are skipped automatically.
+
+**3. User prompt**
+For each installed tool, asks the user `yes/no` whether to remove it.
+
+**4. Backup before removal**
+If the user says yes, it first backs up the tool's config, data, and log directories into a timestamped `.tar.gz` archive named `<tool>_YYYYMMDD_HHMMSS.tar.gz`. If the backup fails, it asks the user whether to proceed or abort for that tool.
+
+**5. Removal**
+Once backed up, it stops and disables the service, removes the RPM package, deletes all related directories, removes the systemd unit file if present, and deletes the system user.
+
+**6. Final cleanup**
+After all tools are processed, reloads the systemd daemon once and prints a summary of all backup archives created during the session.
+
+In short — it safely backs up each ELK component, then interactively removes everything related to it: service, package, files, and user.
+
+
+Provide a executable permission.
+```bash
+chmod +x elk_and_beats_uninstall.sh
+```
+
+Run the script.
+```bash
+./elk_and_beats_uninstall.sh
+```
+
+Output:
+```
+============================================================
+[INFO] ELK Stack and Beats Interactive Uninstaller
+[INFO] Backups will be stored in: /var/backups/elk_uninstall
+============================================================
+
+[INFO] filebeat is not installed, skipping.
+-----------------------------------------------------------
+[INFO] auditbeat is not installed, skipping.
+-----------------------------------------------------------
+[INFO] packetbeat is not installed, skipping.
+-----------------------------------------------------------
+[INFO] logstash is not installed, skipping.
+-----------------------------------------------------------
+[INFO] kibana is not installed, skipping.
+-----------------------------------------------------------
+[INFO] elasticsearch is not installed, skipping.
+-----------------------------------------------------------
+[INFO] heartbeat-elastic is not installed, skipping.
+-----------------------------------------------------------
+Would you like to remove metricbeat? (yes/no): no
+[INFO] Skipping metricbeat as per user choice.
+-----------------------------------------------------------
+[INFO] Reloading systemd daemon...
+[SUCCESS] systemd daemon reloaded.
+
+============================================================
+[BACKUP] Backup Summary — files stored in: /var/backups/elk_uninstall
+------------------------------------------------------------
+[WARNING] No backup files found in /var/backups/elk_uninstall.
+============================================================
+
+[SUCCESS] Interactive ELK/Beats uninstall completed.
+```
+
+---
+
+# Detailed Guidelines.
+
+
+## Table of Contents
+
+1. [Prerequisites](#prerequisites)
+2. [Before You Begin](#before-you-begin)
+3. [Uninstall Elasticsearch](#uninstall-elasticsearch)
+4. [Uninstall Kibana](#uninstall-kibana)
+5. [Uninstall Logstash](#uninstall-logstash)
+6. [Uninstall Filebeat](#uninstall-filebeat)
+7. [Uninstall Metricbeat](#uninstall-metricbeat)
+8. [Uninstall Packetbeat](#uninstall-packetbeat)
+9. [Uninstall Heartbeat](#uninstall-heartbeat)
+10. [Uninstall Auditbeat](#uninstall-auditbeat)
+11. [Remove the Elastic YUM Repository](#remove-the-elastic-yum-repository)
+12. [Remove GPG Key](#remove-gpg-key)
+13. [Verify Complete Removal](#verify-complete-removal)
+14. [Post-Removal Checklist](#post-removal-checklist)
+
+---
+
+## Prerequisites
+
+- Root or sudo access on the target machine.
+- All running services should be identified before removal to avoid disrupting dependent applications.
+- Take a snapshot or backup of any data you may need before proceeding.
+
+To confirm you are running as root:
+
+```bash
+whoami
+```
+
+If not root, prefix all commands with `sudo` or switch to root:
+
+```bash
+sudo -i
+```
 ---
 
 ## Before You Begin
