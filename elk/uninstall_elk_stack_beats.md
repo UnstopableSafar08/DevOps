@@ -52,6 +52,7 @@ sudo -i
 # Email        : sagarmalla08
 # Date         : 02-03-2026
 # Description  : Interactive uninstall of Elasticsearch, Kibana, Logstash, Beats
+#                with pre-uninstall backup of configs, data, and logs
 # =================================================================================
 
 # -----------------------------
@@ -61,12 +62,14 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
 print_info()    { echo -e "${BLUE}[INFO]${NC} $1"; }
 print_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 print_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 print_error()   { echo -e "${RED}[ERROR]${NC} $1" >&2; }
+print_backup()  { echo -e "${CYAN}[BACKUP]${NC} $1"; }
 
 # -----------------------------
 # Root Check
@@ -77,8 +80,61 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 # -----------------------------
-# Tools to check
-# rpm package name          display/service name
+# Backup Base Directory
+# -----------------------------
+BACKUP_BASE_DIR="/var/backups/elk_uninstall"
+
+mkdir -p "$BACKUP_BASE_DIR" || {
+    print_error "Failed to create backup base directory: $BACKUP_BASE_DIR"
+    exit 1
+}
+
+# -----------------------------
+# Backup Function
+# -----------------------------
+# Usage: backup_component <svc_name>
+# Archives /etc/<svc>, /var/lib/<svc>, /var/log/<svc> into a single tar.gz
+# Named: <svc>_YYYYMMDD_HHMMSS.tar.gz
+# -----------------------------
+backup_component() {
+    local svc="$1"
+    local timestamp
+    timestamp=$(date +"%Y%m%d_%H%M%S")
+    local archive_name="${svc}_${timestamp}.tar.gz"
+    local archive_path="${BACKUP_BASE_DIR}/${archive_name}"
+
+    # Collect only directories that actually exist
+    local dirs_to_backup=()
+    for dir in "/etc/$svc" "/var/lib/$svc" "/var/log/$svc"; do
+        if [ -d "$dir" ]; then
+            dirs_to_backup+=("$dir")
+        else
+            print_warning "Backup: $dir not found, skipping from archive."
+        fi
+    done
+
+    if [ ${#dirs_to_backup[@]} -eq 0 ]; then
+        print_warning "No directories found to back up for $svc. Skipping backup."
+        return 1
+    fi
+
+    print_backup "Creating backup: $archive_path"
+    print_backup "Including: ${dirs_to_backup[*]}"
+
+    if tar -czf "$archive_path" "${dirs_to_backup[@]}" 2>/dev/null; then
+        local size
+        size=$(du -sh "$archive_path" | cut -f1)
+        print_success "Backup created: $archive_path (${size})"
+        return 0
+    else
+        print_error "Backup failed for $svc. Aborting uninstall of $svc to protect data."
+        return 1
+    fi
+}
+
+# -----------------------------
+# Tools Map
+# rpm package name  =>  service/dir name
 # -----------------------------
 declare -A tool_map=(
     ["elasticsearch"]="elasticsearch"
@@ -94,20 +150,46 @@ declare -A tool_map=(
 # -----------------------------
 # Interactive Uninstall
 # -----------------------------
+echo "============================================================"
+print_info  "ELK Stack and Beats Interactive Uninstaller"
+print_info  "Backups will be stored in: $BACKUP_BASE_DIR"
+echo "============================================================"
+echo ""
+
 for pkg in "${!tool_map[@]}"; do
     svc="${tool_map[$pkg]}"
 
     # Check if installed via rpm
     if rpm -q "$pkg" &>/dev/null; then
+
         read -rp "Would you like to remove $pkg? (yes/no): " answer
         if [[ "$answer" == "yes" ]]; then
 
-            # Stop and disable service
+            # ----------------------------
+            # Step 1 — Backup before removal
+            # ----------------------------
+            echo ""
+            print_backup "Starting backup for $svc before uninstall..."
+            if ! backup_component "$svc"; then
+                read -rp "Backup failed for $svc. Proceed with uninstall anyway? (yes/no): " force
+                if [[ "$force" != "yes" ]]; then
+                    print_warning "Skipping uninstall of $pkg due to failed backup."
+                    echo "-----------------------------------------------------------"
+                    continue
+                fi
+                print_warning "Proceeding with uninstall of $pkg without a backup."
+            fi
+
+            # ----------------------------
+            # Step 2 — Stop and disable service
+            # ----------------------------
             print_info "Stopping and disabling $svc..."
             systemctl stop "$svc" 2>/dev/null
             systemctl disable "$svc" 2>/dev/null
 
-            # Remove package
+            # ----------------------------
+            # Step 3 — Remove package
+            # ----------------------------
             print_info "Removing package $pkg..."
             if dnf remove -y "$pkg"; then
                 print_success "$pkg package removed."
@@ -115,7 +197,9 @@ for pkg in "${!tool_map[@]}"; do
                 print_error "Failed to remove $pkg package."
             fi
 
-            # Remove config, data, log, and share dirs
+            # ----------------------------
+            # Step 4 — Remove config, data, log, and share dirs
+            # ----------------------------
             print_info "Removing configs, data, and logs for $svc..."
             for dir in "/etc/$svc" "/var/lib/$svc" "/var/log/$svc" "/usr/share/$svc"; do
                 if [ -d "$dir" ]; then
@@ -125,7 +209,9 @@ for pkg in "${!tool_map[@]}"; do
                 fi
             done
 
-            # Remove custom systemd unit file (if present)
+            # ----------------------------
+            # Step 5 — Remove custom systemd unit file (if present)
+            # ----------------------------
             print_info "Checking for custom systemd unit file..."
             unit_file="/etc/systemd/system/${svc}.service"
             if [ -f "$unit_file" ]; then
@@ -134,7 +220,9 @@ for pkg in "${!tool_map[@]}"; do
                 print_warning "$unit_file does not exist, skipping."
             fi
 
-            # Remove service user
+            # ----------------------------
+            # Step 6 — Remove service user
+            # ----------------------------
             print_info "Removing system user $svc..."
             if id "$svc" &>/dev/null; then
                 userdel -r "$svc" && print_success "User $svc removed."
@@ -149,16 +237,35 @@ for pkg in "${!tool_map[@]}"; do
             print_info "Skipping $pkg as per user choice."
             echo "-----------------------------------------------------------"
         fi
+
     else
         print_info "$pkg is not installed, skipping."
         echo "-----------------------------------------------------------"
     fi
+
 done
 
+# ----------------------------
 # Reload systemd once after all removals
+# ----------------------------
 print_info "Reloading systemd daemon..."
 systemctl daemon-reload
 print_success "systemd daemon reloaded."
+
+# ----------------------------
+# Backup Summary
+# ----------------------------
+echo ""
+echo "============================================================"
+print_backup "Backup Summary — files stored in: $BACKUP_BASE_DIR"
+echo "------------------------------------------------------------"
+if ls "$BACKUP_BASE_DIR"/*.tar.gz &>/dev/null; then
+    ls -lh "$BACKUP_BASE_DIR"/*.tar.gz | awk '{print $5, $9}'
+else
+    print_warning "No backup files found in $BACKUP_BASE_DIR."
+fi
+echo "============================================================"
+echo ""
 
 print_success "Interactive ELK/Beats uninstall completed."
 ```
