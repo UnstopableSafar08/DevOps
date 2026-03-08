@@ -34,12 +34,15 @@ For a production deployment running on a server with 4 CPU cores and 8 GB RAM, t
 Edit the following file:
 
 ```
-/etc/security/limits.conf
+vi /etc/security/limits.d/minio.conf
 ```
 
 ```
-root soft nofile 65536
-root hard nofile 131072
+# <domain>  <type>  <item>          <value>
+root        soft    nofile          65536
+root        hard    nofile          65536
+root        soft    nproc           65535
+root        hard    nproc           65535
 ```
 
 Verify limits.
