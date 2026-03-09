@@ -23,7 +23,7 @@
 ```
 ┌──────────────────────────────┐          ┌──────────────────────────────┐
 │   APP SERVER                 │          │   ELK SERVER                 │
-│   (e.g. airlines-04)         │          │   (e.g. ett-elk-stack)       │
+│   (e.g. airlines-04)         │          │   (e.g. abc-elk-stack)       │
 │                              │  :9200   │                              │
 │   Filebeat ──────────────────┼─────────►│   Elasticsearch :9200        │
 │   ├── /var/apps/*/logs/*.log │  HTTPS   │   Kibana         :5601       │
@@ -100,10 +100,10 @@ sudo dnf install elasticsearch -y
 
 ```yaml
 # ── Cluster ──────────────────────────────────────────────
-cluster.name: es-ett
+cluster.name: es-abc
 
 # ── Node ─────────────────────────────────────────────────
-node.name: ett-elk-stack
+node.name: abc-elk-stack
 
 # ── Paths ────────────────────────────────────────────────
 path.data: /var/lib/elasticsearch
@@ -172,8 +172,8 @@ curl -u elastic:"YOUR_PASSWORD" -XGET -k https://localhost:9200
 Expected output:
 ```json
 {
-  "name" : "ett-elk-stack",
-  "cluster_name" : "es-ett",
+  "name" : "abc-elk-stack",
+  "cluster_name" : "es-abc",
   "version" : { "number" : "9.3.0" },
   "tagline" : "You Know, for Search"
 }
@@ -195,7 +195,7 @@ sudo dnf install kibana -y
 # ── Server ───────────────────────────────────────────────
 server.port: 5601
 server.host: "0.0.0.0"
-server.name: "ett-elk-stack"
+server.name: "abc-elk-stack"
 
 # ── Elasticsearch ─────────────────────────────────────────
 elasticsearch.hosts: ["https://localhost:9200"]
@@ -283,10 +283,10 @@ setup.kibana:
   username: "elastic"
   password: "YOUR_PASSWORD"
 
-# ======================== General Settings ========================
+# ======================== General Sabcings ========================
 setup.ilm.enabled: true
 setup.template.enabled: true
-setup.template.settings:
+setup.template.sabcings:
   index.number_of_shards: 1
   index.number_of_replicas: 0           # 0 for single-node cluster
 
@@ -474,10 +474,10 @@ setup.kibana:
   username: "elastic"
   password: "YOUR_PASSWORD"
 
-# ======================== General Settings ========================
+# ======================== General Sabcings ========================
 setup.ilm.enabled: true
 setup.template.enabled: true
-setup.template.settings:
+setup.template.sabcings:
   index.number_of_shards: 1
   index.number_of_replicas: 0
 
@@ -643,7 +643,7 @@ curl -u elastic:"YOUR_PASSWORD" -k \
 # Sample 3 PHP log documents
 curl -u elastic:"YOUR_PASSWORD" -k \
   -H "Content-Type: application/json" \
-  -XGET "https://<ELK_SERVER_IP>:9200/filebeat-*/_search?pretty" \
+  -XGET "https://<ELK_SERVER_IP>:9200/filebeat-*/_search?prabcy" \
   -d '{
     "query": {"term": {"log_type": "php-application"}},
     "size": 3,
@@ -657,7 +657,7 @@ curl -u elastic:"YOUR_PASSWORD" -k \
 
 ### 9.1 Filebeat — Prevent Resource Exhaustion
 
-Add these settings when monitoring directories with many files:
+Add these sabcings when monitoring directories with many files:
 
 ```yaml
 # In each filestream input block:
@@ -666,7 +666,7 @@ close.on_state_change.inactive: 5m          # Close idle file handles after 5 mi
 prospector.scanner.fingerprint.length: 64   # Support small files < 1024 bytes
 prospector.scanner.fingerprint.offset: 0
 
-# Global queue settings
+# Global queue sabcings
 queue.mem:
   events: 1024
   flush.min_events: 512
@@ -827,16 +827,16 @@ BASE="https://<ELK_IP>:9200"
 AUTH='-u elastic:"YOUR_PASSWORD"'
 
 # Cluster health
-curl $AUTH -k "$BASE/_cluster/health?pretty"
+curl $AUTH -k "$BASE/_cluster/health?prabcy"
 
 # List all indices
 curl $AUTH -k "$BASE/_cat/indices?v"
 
 # List data streams
-curl $AUTH -k "$BASE/_data_stream/filebeat-*?pretty"
+curl $AUTH -k "$BASE/_data_stream/filebeat-*?prabcy"
 
 # Index stats
-curl $AUTH -k "$BASE/filebeat-*/_stats?pretty"
+curl $AUTH -k "$BASE/filebeat-*/_stats?prabcy"
 
 # Delete an index
 curl $AUTH -k -XDELETE "$BASE/.ds-filebeat-9.3.0-2026.03.09-000001"
