@@ -131,16 +131,18 @@ bursts from Promtail and query requests from Grafana at the same time.
 
 Total available disk: 100 GB
 
+> Default Path : `/var/lib/`
+
 ```
 +-------------------------------------------------------------------+
 |  Path                    | Size  | Purpose                        |
 +-------------------------------------------------------------------+
 |  / (root OS partition)   | 10 GB | OS, binaries, config           |
 |  /var/lib/loki           | 60 GB | Chunks, WAL, index, cache      |
-|    /var/lib/loki/chunks  | 45 GB | Compressed log chunks          |
-|    /var/lib/loki/wal     |  5 GB | Write-ahead log (crash safety) |
-|    /var/lib/loki/tsdb-*  |  5 GB | TSDB index and cache           |
-|    /var/lib/loki/compact |  5 GB | Compactor working directory    |
+|  /var/lib/loki/chunks    | 45 GB | Compressed log chunks          |
+|  /var/lib/loki/wal       |  5 GB | Write-ahead log (crash safety) |
+|  /var/lib/loki/tsdb-*    |  5 GB | TSDB index and cache           |
+|  /var/lib/loki/compact   |  5 GB | Compactor working directory    |
 |  /var/lib/prometheus     | 10 GB | TSDB blocks, WAL               |
 |  /var/lib/grafana        |  5 GB | SQLite DB, plugins, images     |
 |  /var/lib/promtail       |  1 GB | Positions file                 |
@@ -649,6 +651,8 @@ For example, 1 MB/s ingestion with 72h retention:
 ```
 
 #### Loki Server: Disk Layout (100 GB)
+
+> Default Path : `/var/lib/`
 
 ```
 +-------------------------------------------------------------------+
