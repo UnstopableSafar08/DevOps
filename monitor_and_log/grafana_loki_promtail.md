@@ -1,25 +1,5 @@
-## Full Observability Stack Setup
-
-### Architecture
-```
-┌─────────────────────────────────────────────────────────────┐
-│  App Nodes (x4)                                             │
-│  ├── Promtail     → ships logs    → Loki                   │
-│  └── Node Exporter → ships metrics → Prometheus            │
-└─────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────┐
-│  Log/Monitoring Server (10.13.222.26)                       │
-│  ├── Loki      (log storage, 72hr retention)                │
-│  ├── Prometheus (metrics storage)                           │
-│  └── Grafana   (unified dashboards + alerts)                │
-└─────────────────────────────────────────────────────────────┘
-```
-
----
-
 # Observability Setup and Configurations Guide
-
+## Full Observability Stack Setup
 ## Table of Contents
 
 - [Overview: ELK Stack vs Grafana + Loki + Promtail](#overview)
