@@ -1,238 +1,410 @@
-# Grafana + Loki + Promtail Resource Allocation and Tuning Guide
+# Grafana + Loki + Promtail + Prometheus Resource Allocation Guide
 
-## Server Specification Reference
+## Deployment Models Covered
 
-| Resource | Available |
-|---|---|
-| RAM | 8 GB |
-| CPU | 4 cores |
-| Disk | 100 GB |
-| OS | Oracle Linux 9 / RHEL 9 |
+This guide covers resource allocation for two deployment models:
+
+- Single Server: all tools run on one machine
+- Separate Servers: each tool runs on its own dedicated machine
 
 ---
 
 ## Table of Contents
 
-- [Resource Allocation Summary](#resource-allocation-summary)
-- [Disk Layout Planning](#disk-layout-planning)
-- [Operating System Tuning](#operating-system-tuning)
-- [Loki Resource Configuration](#loki-resource-configuration)
-- [Grafana Resource Configuration](#grafana-resource-configuration)
-- [Promtail Resource Configuration](#promtail-resource-configuration)
-- [Systemd Resource Controls](#systemd-resource-controls)
-- [Verify All Limits Are Applied](#verify-all-limits-are-applied)
-- [Monitoring Resource Usage](#monitoring-resource-usage)
-- [Troubleshooting Resource Issues](#troubleshooting-resource-issues)
+- [Deployment Model Comparison](#deployment-model-comparison)
+- [Model 1: Single Server Deployment](#model-1-single-server-deployment)
+  - [Single Server Architecture](#single-server-architecture)
+  - [Single Server RAM Allocation](#single-server-ram-allocation)
+  - [Single Server CPU Allocation](#single-server-cpu-allocation)
+  - [Single Server Disk Allocation](#single-server-disk-allocation)
+  - [Single Server OS Tuning](#single-server-os-tuning)
+  - [Single Server Systemd Resource Controls](#single-server-systemd-resource-controls)
+  - [Single Server Application Configs](#single-server-application-configs)
+- [Model 2: Separate Server Deployment](#model-2-separate-server-deployment)
+  - [Separate Server Architecture](#separate-server-architecture)
+  - [Loki Server](#loki-server)
+  - [Prometheus Server](#prometheus-server)
+  - [Grafana Server](#grafana-server)
+  - [Promtail on App Nodes](#promtail-on-app-nodes)
+- [Resource Comparison Table](#resource-comparison-table)
+- [Which Model to Choose](#which-model-to-choose)
 
 ---
 
-## Resource Allocation Summary
+## Deployment Model Comparison
 
-This section shows how to distribute the 8 GB RAM and 4 CPU cores across all services on a single server running the full stack.
+| Factor | Single Server | Separate Servers |
+|---|---|---|
+| Minimum servers needed | 1 | 4 (Loki, Prometheus, Grafana, App nodes) |
+| Total RAM required | 8 GB minimum | 2 GB per dedicated server minimum |
+| Cost | Low | Higher |
+| Failure impact | All tools go down together | One tool fails, others continue |
+| Resource contention | High (tools compete for RAM and CPU) | None (each tool has full resources) |
+| Scaling | Limited (fixed single machine) | Each tool scales independently |
+| Maintenance complexity | Low | Higher |
+| Suitable for | Dev, UAT, small production | Production, high availability |
+| Monitoring the monitor | Difficult | Easy (Prometheus on its own server) |
 
-### RAM Allocation
+---
 
-```
-Total RAM: 8192 MB
------------------------------------------------------------
-Service             Allocated     Heap/Cache     Purpose
------------------------------------------------------------
-Loki                3072 MB       2048 MB heap   Log storage engine
-Grafana              512 MB        512 MB heap   Dashboard UI
-Promtail             256 MB        256 MB heap   Log shipping agent
-Node Exporter         64 MB         64 MB        Metrics exporter
-Operating System    1024 MB           -          Kernel, network buffers
-Page Cache Reserve  3264 MB           -          Disk I/O cache (OS managed)
------------------------------------------------------------
-Total               8192 MB
-```
+## Model 1: Single Server Deployment
 
-Page cache is not "wasted" RAM. The OS uses remaining free memory as disk read cache, which significantly speeds up Loki chunk reads and index lookups. Leaving 3+ GB for page cache on a log server is intentional.
+All tools run on one server. This model requires careful resource partitioning to prevent any single tool from starving the others.
 
-### CPU Allocation
+### Single Server Architecture
 
 ```
-Total CPU: 4 cores
------------------------------------------------------------
-Service             CPU Quota     Threads/Workers
------------------------------------------------------------
-Loki                2.0 cores     ingester, querier, compactor
-Grafana             0.5 cores     HTTP handlers, alerting
-Promtail            0.5 cores     file tail workers
-Node Exporter       0.1 cores     metric collectors
-OS / system         0.9 cores     kernel, network, I/O scheduler
------------------------------------------------------------
-Total               4.0 cores
-```
-
-### Disk Allocation
-
-```
-Total Disk: 100 GB
------------------------------------------------------------
-Path                        Size        Purpose
------------------------------------------------------------
-/                            10 GB      OS root partition
-/var/lib/loki                60 GB      Loki chunks, index, WAL, cache
-/var/lib/grafana              5 GB      Grafana database, plugins, images
-/var/lib/promtail             1 GB      Promtail positions file
-/var/log                      5 GB      System logs and service journals
-/tmp                          2 GB      Temporary files
-Unallocated reserve          17 GB      Growth headroom
------------------------------------------------------------
-Total                       100 GB
++--------------------------------------------------------------+
+|  Single Observability Server                                 |
+|  Example specs: 8 GB RAM, 4 CPU cores, 100 GB disk          |
+|                                                              |
+|  +----------+  +------------+  +---------+  +----------+   |
+|  |  Loki    |  | Prometheus |  | Grafana |  | Promtail |   |
+|  |  :3100   |  |   :9090    |  |  :3000  |  |  :9080   |   |
+|  | 3072 MB  |  |  1024 MB   |  | 512 MB  |  | 256 MB   |   |
+|  | 2.0 CPU  |  |  0.5 CPU   |  | 0.5 CPU |  | 0.25 CPU |   |
+|  | 60 GB    |  |  10 GB     |  | 5 GB    |  | 0.5 GB   |   |
+|  +----------+  +------------+  +---------+  +----------+   |
+|                                                              |
+|  Remaining: 1152 MB RAM for OS + page cache                  |
+|             0.75 CPU for OS and I/O                          |
+|             24.5 GB disk for OS, logs, tmp, headroom         |
++--------------------------------------------------------------+
+          ^                    ^
+          |                    |
+   Promtail push          Grafana queries
+   from app nodes         from browser
+   (10.10.10.10-13)
 ```
 
 ---
 
-## Disk Layout Planning
+### Single Server RAM Allocation
 
-### Create Dedicated Mount for Loki (Recommended)
+Total available RAM: 8192 MB
 
-If you have a separate disk or LVM volume available, mount it at `/var/lib/loki` before installing Loki. This isolates Loki I/O from the OS root and prevents log storage from filling the root filesystem.
-
-```bash
-# Example using LVM (adjust volume group name to match your system)
-sudo lvcreate -L 60G -n loki_data <your_vg_name>
-sudo mkfs.xfs /dev/<your_vg_name>/loki_data
-sudo mkdir -p /var/lib/loki
-
-# Add to /etc/fstab for persistent mount
-echo '/dev/<your_vg_name>/loki_data  /var/lib/loki  xfs  defaults,noatime  0 2' \
-  | sudo tee -a /etc/fstab
-
-sudo mount -a
-sudo df -h /var/lib/loki
+```
++-------------------------------------------------------------------+
+|  Service          | Allocated  | Purpose                          |
++-------------------------------------------------------------------+
+|  Loki             | 3072 MB    | Chunk cache, ingester, querier   |
+|  Prometheus       | 1024 MB    | Time series head block, WAL      |
+|  Grafana          |  512 MB    | Dashboard rendering, SQLite      |
+|  Promtail         |  256 MB    | Log batching, pipeline stages    |
+|  Node Exporter    |   64 MB    | Metric collection                |
+|  OS kernel        |  512 MB    | Network stack, process table     |
+|  Page cache       | 2752 MB    | Disk read cache (OS managed)     |
++-------------------------------------------------------------------+
+|  Total            | 8192 MB                                       |
++-------------------------------------------------------------------+
 ```
 
-Using `noatime` in mount options prevents the OS from updating the access timestamp on every file read, which reduces unnecessary disk writes on Loki chunk files.
+Page cache note: The OS automatically uses all RAM not claimed by processes
+as a disk read cache. For Loki this dramatically speeds up chunk reads. Do
+not try to eliminate page cache by allocating all RAM to services. The
+2752 MB reserved here will be used by the OS as cache automatically.
 
-### Create Loki Directory Structure
+### Single Server CPU Allocation
 
-```bash
-sudo mkdir -p /var/lib/loki/chunks
-sudo mkdir -p /var/lib/loki/tsdb-index
-sudo mkdir -p /var/lib/loki/tsdb-cache
-sudo mkdir -p /var/lib/loki/wal
-sudo mkdir -p /var/lib/loki/compactor
-sudo mkdir -p /var/lib/loki/rules
-sudo chown -R loki:loki /var/lib/loki
+Total available CPU: 4 cores (400% in systemd CPUQuota notation)
+
+```
++-------------------------------------------------------------------+
+|  Service          | CPUQuota | CPUWeight | Notes                  |
++-------------------------------------------------------------------+
+|  Loki             | 200%     | 60        | Ingestion + queries    |
+|  Prometheus       |  50%     | 20        | Scraping + compaction  |
+|  Grafana          |  50%     | 15        | HTTP + alert eval      |
+|  Promtail         |  25%     | 10        | File tailing           |
+|  Node Exporter    |  10%     |  5        | Metric collection      |
+|  OS reserved      |  65%     |  -        | Kernel, I/O, network   |
++-------------------------------------------------------------------+
+|  Total            | 400%                                          |
++-------------------------------------------------------------------+
 ```
 
-### Set Up Log Rotation for Service Journals
+CPUWeight controls relative priority when all services compete for CPU
+simultaneously. Loki gets the most because it handles both ingestion
+bursts from Promtail and query requests from Grafana at the same time.
 
-Without log rotation, systemd journals can grow unbounded. Cap journal size to prevent filling `/var/log`.
+### Single Server Disk Allocation
+
+Total available disk: 100 GB
+
+```
++-------------------------------------------------------------------+
+|  Path                    | Size  | Purpose                        |
++-------------------------------------------------------------------+
+|  / (root OS partition)   | 10 GB | OS, binaries, config           |
+|  /var/lib/loki           | 60 GB | Chunks, WAL, index, cache      |
+|    /var/lib/loki/chunks  | 45 GB | Compressed log chunks          |
+|    /var/lib/loki/wal     |  5 GB | Write-ahead log (crash safety) |
+|    /var/lib/loki/tsdb-*  |  5 GB | TSDB index and cache           |
+|    /var/lib/loki/compact |  5 GB | Compactor working directory    |
+|  /var/lib/prometheus     | 10 GB | TSDB blocks, WAL               |
+|  /var/lib/grafana        |  5 GB | SQLite DB, plugins, images     |
+|  /var/lib/promtail       |  1 GB | Positions file                 |
+|  /var/log                |  5 GB | Journald, service logs         |
+|  /tmp                    |  2 GB | Temporary files                |
+|  Unallocated headroom    |  7 GB | Growth buffer                  |
++-------------------------------------------------------------------+
+|  Total                   | 100 GB                                 |
++-------------------------------------------------------------------+
+```
+
+### Single Server OS Tuning
+
+Apply these settings on the single observability server.
 
 ```bash
+# File descriptor and inotify limits
+sudo tee /etc/security/limits.d/observability.conf > /dev/null <<'EOF'
+loki        soft    nofile      65536
+loki        hard    nofile      65536
+loki        soft    nproc       32768
+loki        hard    nproc       32768
+prometheus  soft    nofile      65536
+prometheus  hard    nofile      65536
+prometheus  soft    nproc       32768
+prometheus  hard    nproc       32768
+grafana     soft    nofile      16384
+grafana     hard    nofile      16384
+promtail    soft    nofile      16384
+promtail    hard    nofile      16384
+EOF
+```
+
+```bash
+# Kernel parameters
+sudo tee /etc/sysctl.d/99-observability.conf > /dev/null <<'EOF'
+# System-wide file descriptor limit
+fs.file-max = 524288
+
+# Inotify for Promtail file watching
+fs.inotify.max_user_watches = 524288
+fs.inotify.max_user_instances = 512
+
+# Network buffers for log ingestion
+net.core.rmem_max = 134217728
+net.core.wmem_max = 134217728
+net.core.somaxconn = 32768
+net.ipv4.tcp_max_syn_backlog = 16384
+
+# Memory behavior
+# Low swappiness: prefer RAM over swap for all services
+vm.swappiness = 10
+vm.dirty_ratio = 15
+vm.dirty_background_ratio = 5
+vm.max_map_count = 262144
+EOF
+
+sudo sysctl -p /etc/sysctl.d/99-observability.conf
+```
+
+```bash
+# Journal size cap to protect /var/log
 sudo mkdir -p /etc/systemd/journald.conf.d/
-
-sudo tee /etc/systemd/journald.conf.d/size-limit.conf > /dev/null <<'EOF'
+sudo tee /etc/systemd/journald.conf.d/limits.conf > /dev/null <<'EOF'
 [Journal]
 SystemMaxUse=2G
 SystemKeepFree=1G
 SystemMaxFileSize=200M
 MaxRetentionSec=7day
 EOF
-
 sudo systemctl restart systemd-journald
 ```
 
----
+```bash
+# Loki disk directories
+sudo mkdir -p \
+  /var/lib/loki/chunks \
+  /var/lib/loki/wal \
+  /var/lib/loki/tsdb-index \
+  /var/lib/loki/tsdb-cache \
+  /var/lib/loki/compactor \
+  /var/lib/loki/rules
+sudo chown -R loki:loki /var/lib/loki
+```
 
-## Operating System Tuning
+### Single Server Systemd Resource Controls
 
-These kernel and system settings apply to the entire server and benefit all services running on it.
-
-### Increase File Descriptor Limits
-
-Loki opens a file descriptor for every active chunk file, WAL segment, and index file. On a busy server receiving logs from 4 app nodes it can easily open 10,000 or more file descriptors. The default Linux limit of 1024 is far too low.
+#### Loki Service
 
 ```bash
-sudo tee /etc/security/limits.d/observability.conf > /dev/null <<'EOF'
-# Loki
-loki        soft    nofile      65536
-loki        hard    nofile      65536
-loki        soft    nproc       32768
-loki        hard    nproc       32768
+sudo tee /etc/systemd/system/loki.service > /dev/null <<'EOF'
+[Unit]
+Description=Loki Log Aggregation System
+After=network.target
 
-# Grafana
-grafana     soft    nofile      16384
-grafana     hard    nofile      16384
+[Service]
+User=loki
+Group=loki
+ExecStart=/usr/local/bin/loki -config.file=/etc/loki/loki.yml
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=60s
+StandardOutput=journal
+StandardError=journal
 
-# Promtail
-promtail    soft    nofile      16384
-promtail    hard    nofile      16384
+# File descriptor limit
+LimitNOFILE=65536
+LimitNPROC=32768
+LimitCORE=0
 
-# Root (covers services run as root)
-root        soft    nofile      65536
-root        hard    nofile      65536
+# Go runtime tuning
+# GOGC=75: GC runs more often, keeps RAM lower at cost of slightly more CPU
+# GOMEMLIMIT: hard ceiling at 2.75 GB, below systemd MemoryMax of 3 GB
+# GOMAXPROCS=2: Loki uses up to 2 OS threads, matching CPUQuota
+Environment=GOGC=75
+Environment=GOMEMLIMIT=2952790016
+Environment=GOMAXPROCS=2
+
+# Systemd cgroup limits
+CPUQuota=200%
+CPUWeight=60
+MemoryMax=3G
+MemoryHigh=2750M
+MemorySwapMax=0
+IOWeight=60
+
+[Install]
+WantedBy=multi-user.target
 EOF
 ```
 
-### Kernel Parameters via sysctl
+#### Prometheus Service
 
 ```bash
-sudo tee /etc/sysctl.d/99-observability.conf > /dev/null <<'EOF'
-# Maximum number of open file descriptors system-wide
-fs.file-max = 524288
+sudo tee /etc/systemd/system/prometheus.service > /dev/null <<'EOF'
+[Unit]
+Description=Prometheus Monitoring
+After=network.target
 
-# Maximum number of inotify watches (used by Promtail to watch log files)
-# Each watched log file consumes one inotify watch
-# With 4 app nodes sending multiple log files, set this high
-fs.inotify.max_user_watches = 524288
-fs.inotify.max_user_instances = 512
+[Service]
+User=prometheus
+Group=prometheus
+ExecStart=/usr/local/bin/prometheus \
+  --config.file=/etc/prometheus/prometheus.yml \
+  --storage.tsdb.path=/var/lib/prometheus \
+  --storage.tsdb.retention.time=30d \
+  --storage.tsdb.wal-compression \
+  --web.listen-address=0.0.0.0:9090 \
+  --web.enable-lifecycle \
+  --query.max-concurrency=4 \
+  --query.timeout=2m
+Restart=on-failure
+RestartSec=10s
+StandardOutput=journal
+StandardError=journal
 
-# Network buffer sizes for high log ingestion throughput
-net.core.rmem_max = 134217728
-net.core.wmem_max = 134217728
-net.core.rmem_default = 65536
-net.core.wmem_default = 65536
-net.ipv4.tcp_rmem = 4096 87380 134217728
-net.ipv4.tcp_wmem = 4096 65536 134217728
+LimitNOFILE=65536
+LimitNPROC=32768
 
-# Increase backlog for high connection rates from Promtail agents
-net.core.somaxconn = 32768
-net.ipv4.tcp_max_syn_backlog = 16384
+# Go runtime tuning
+# GOMEMLIMIT: hard ceiling at 900 MB, below systemd MemoryMax of 1 GB
+Environment=GOGC=100
+Environment=GOMEMLIMIT=943718400
+Environment=GOMAXPROCS=1
 
-# Virtual memory settings
-# Reduce swappiness - prefer RAM over swap for log processing workload
-vm.swappiness = 10
+CPUQuota=50%
+CPUWeight=20
+MemoryMax=1G
+MemoryHigh=900M
+MemorySwapMax=0
+IOWeight=30
 
-# Allow more dirty pages before forcing writeback
-# Helps Loki WAL writes perform consistently
-vm.dirty_ratio = 15
-vm.dirty_background_ratio = 5
-
-# Increase max map count for memory-mapped index files
-vm.max_map_count = 262144
+[Install]
+WantedBy=multi-user.target
 EOF
-
-# Apply all sysctl settings immediately
-sudo sysctl -p /etc/sysctl.d/99-observability.conf
 ```
 
-### Verify Current System Limits
+#### Grafana Service
 
 ```bash
-# Check current system-wide file descriptor limit
-cat /proc/sys/fs/file-max
+sudo tee /etc/systemd/system/grafana-server.service > /dev/null <<'EOF'
+[Unit]
+Description=Grafana Dashboard Server
+After=network.target
 
-# Check current inotify limits
-cat /proc/sys/fs/inotify/max_user_watches
+[Service]
+User=grafana
+Group=grafana
+ExecStart=/usr/sbin/grafana-server \
+  --config=/etc/grafana/grafana.ini \
+  --homepath=/usr/share/grafana \
+  --packaging=rpm
+Restart=on-failure
+RestartSec=10s
+StandardOutput=journal
+StandardError=journal
 
-# Check open file counts per service (after services are running)
-cat /proc/$(pgrep -f "loki")/limits | grep "open files"
-cat /proc/$(pgrep -f "grafana")/limits | grep "open files"
-cat /proc/$(pgrep -f "promtail")/limits | grep "open files"
+LimitNOFILE=16384
+LimitNPROC=8192
+
+Environment=GOGC=100
+Environment=GOMEMLIMIT=503316480
+Environment=GOMAXPROCS=1
+
+CPUQuota=50%
+CPUWeight=15
+MemoryMax=512M
+MemoryHigh=460M
+MemorySwapMax=0
+IOWeight=20
+
+[Install]
+WantedBy=multi-user.target
+EOF
 ```
 
----
+#### Promtail Service
 
-## Loki Resource Configuration
+```bash
+sudo tee /etc/systemd/system/promtail.service > /dev/null <<'EOF'
+[Unit]
+Description=Promtail Log Shipper
+After=network.target
 
-### Loki Application-Level Resource Settings
+[Service]
+User=promtail
+Group=promtail
+ExecStart=/usr/local/bin/promtail -config.file=/etc/promtail/promtail.yml
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
 
-The following is a complete `/etc/loki/loki.yml` with resource allocation tuned for 8 GB RAM and 4 CPU cores. Comments explain the reasoning for each value.
+LimitNOFILE=16384
+LimitNPROC=8192
+
+Environment=GOGC=100
+Environment=GOMEMLIMIT=251658240
+Environment=GOMAXPROCS=1
+
+CPUQuota=25%
+CPUWeight=10
+MemoryMax=256M
+MemoryHigh=220M
+MemorySwapMax=0
+IOWeight=20
+
+[Install]
+WantedBy=multi-user.target
+EOF
+```
+
+```bash
+# Apply all changes
+sudo systemctl daemon-reload
+sudo systemctl restart loki prometheus grafana-server promtail
+```
+
+### Single Server Application Configs
+
+#### Loki Config for Single Server
+
+The key difference from a dedicated server is smaller cache sizes and lower
+concurrency limits to share RAM with Prometheus and Grafana.
 
 ```bash
 sudo tee /etc/loki/loki.yml > /dev/null <<'EOF'
@@ -242,13 +414,8 @@ server:
   http_listen_port: 3100
   grpc_listen_port: 9096
   log_level: warn
-
-  # Limit concurrent HTTP and gRPC connections
-  # Prevents runaway memory growth under heavy query load
   http_server_read_timeout: 60s
   http_server_write_timeout: 60s
-  grpc_server_max_recv_msg_size: 67108864     # 64 MB max gRPC message
-  grpc_server_max_send_msg_size: 67108864     # 64 MB max gRPC response
 
 common:
   instance_addr: 127.0.0.1
@@ -272,103 +439,45 @@ schema_config:
         prefix: index_
         period: 24h
 
-# -------------------------------------------------------
-# Ingester resource tuning
-# The ingester holds active chunks in memory before
-# flushing to disk. Tuning this directly controls RAM use.
-# -------------------------------------------------------
 ingester:
-  # How long a chunk can sit idle before being flushed to disk
-  # Shorter = less RAM used, more frequent disk writes
-  # Longer = more RAM used, fewer disk writes
-  # 30m is a good balance for 8 GB RAM
+  # Flush chunks to disk after 30m idle (frees RAM faster than 1h)
   chunk_idle_period: 30m
-
-  # Maximum age of any chunk before it is force-flushed
-  # Keeps memory usage bounded
   max_chunk_age: 1h
-
-  # Target size of each chunk in bytes (1 MB)
-  # Larger chunks = better compression, more RAM per chunk
   chunk_target_size: 1048576
-
-  # How long to retain a chunk in memory after flushing
-  # Keep short to free RAM quickly after flush
   chunk_retain_period: 30s
-
-  # Maximum number of chunks per ingester kept in memory
-  # 8 GB server: cap at 2000 to limit ingester RAM to ~2 GB
-  max_transfer_retries: 0
-
-  # WAL (Write Ahead Log) stores incoming logs before they
-  # are assembled into chunks. Enables crash recovery.
+  concurrent_flushes: 2
   wal:
     dir: /var/lib/loki/wal
-    # Checkpoint WAL every 5 minutes
     checkpoint_duration: 5m
-    # Flush WAL to chunk store when WAL size reaches 1 GB
     flush_on_shutdown: true
-    replay_memory_ceiling: 512MB
+    # Limit WAL replay memory on single server
+    replay_memory_ceiling: 256MB
 
-  # Limit concurrent ingestion goroutines
-  # Prevents CPU starvation under burst ingestion
-  concurrent_flushes: 2
-
-# -------------------------------------------------------
-# Querier resource tuning
-# Controls how much memory and CPU queries can consume
-# -------------------------------------------------------
 querier:
-  # Maximum number of concurrent queries
-  # 4 CPU cores: keep this at 4-8 to avoid overloading
+  # Reduced from default because CPU is shared with Prometheus and Grafana
   max_concurrent: 4
+  query_timeout: 60s
 
-  # Query timeout
-  query_timeout: 1m
-
-  # Engine timeout
-  engine:
-    timeout: 3m
-
-# -------------------------------------------------------
-# Query frontend
-# Splits large queries into smaller pieces and caches results
-# -------------------------------------------------------
 query_range:
-  # Split queries by 1-hour intervals to parallelize
   split_queries_by_interval: 1h
   parallelise_shardable_queries: true
-
   results_cache:
     cache:
       embedded_cache:
         enabled: true
-        # Cache size: 256 MB
-        # Reduces repeated disk reads for recent queries
-        max_size_mb: 256
+        # Reduced cache: 128 MB (sharing RAM with other services)
+        max_size_mb: 128
         ttl: 1h
 
-# -------------------------------------------------------
-# Compactor
-# Runs background compaction and retention deletion
-# Limit its CPU and I/O impact on the main query path
-# -------------------------------------------------------
 compactor:
   working_directory: /var/lib/loki/compactor
   compaction_interval: 10m
   retention_enabled: true
   retention_delete_delay: 2h
-
-  # Number of goroutines deleting expired chunks
-  # Keep low to avoid I/O spikes during retention cleanup
-  retention_delete_worker_count: 50
-
+  # Reduced workers: minimize I/O competition with Prometheus
+  retention_delete_worker_count: 30
   delete_request_store: filesystem
 
-# -------------------------------------------------------
-# Storage config
-# Controls cache sizes for index and chunk lookups
-# -------------------------------------------------------
 storage_config:
   tsdb_shipper:
     active_index_directory: /var/lib/loki/tsdb-index
@@ -379,47 +488,18 @@ chunk_store_config:
   chunk_cache_config:
     embedded_cache:
       enabled: true
-      # Chunk read cache: 512 MB
-      # Frequently accessed chunks are served from RAM
-      # avoiding disk reads entirely
-      max_size_mb: 512
+      # Reduced chunk cache: 256 MB (sharing RAM with other services)
+      max_size_mb: 256
       ttl: 2h
 
-# -------------------------------------------------------
-# Limits (applies per-tenant, single tenant here)
-# These are the most important settings to prevent a
-# single burst of logs from consuming all server resources
-# -------------------------------------------------------
 limits_config:
-  # 72-hour log retention
   retention_period: 72h
-
-  # Maximum ingestion rate per second
-  # 16 MB/s allows ~1 MB/s per app node across 4 nodes
-  # with headroom for bursts
   ingestion_rate_mb: 16
   ingestion_burst_size_mb: 32
-
-  # Maximum number of active log streams
-  # Each unique label combination = 1 stream
   max_streams_per_user: 10000
-
-  # Maximum number of log entries returned per query
   max_entries_limit_per_query: 50000
-
-  # Maximum bytes returned per query
-  max_query_series_limit: 10000
-
-  # Maximum time range a query can span
-  # Prevents expensive full-retention queries from 
-  # consuming all available RAM
   max_query_lookback: 72h
   max_query_length: 72h
-
-  # Cardinality limit: max unique label values
-  max_label_names_per_series: 30
-
-  # Per-stream rate limiting
   per_stream_rate_limit: 3MB
   per_stream_rate_limit_burst: 15MB
 
@@ -429,252 +509,531 @@ table_manager:
 EOF
 ```
 
-### Loki Go Runtime Settings
-
-Loki is written in Go. The Go runtime has its own memory management settings that must be tuned separately from the application config.
+#### Prometheus Config for Single Server
 
 ```bash
-sudo mkdir -p /etc/systemd/system/loki.service.d/
-
-sudo tee /etc/systemd/system/loki.service.d/runtime.conf > /dev/null <<'EOF'
-[Service]
-# GOGC controls when Go garbage collector runs
-# Default is 100 (GC when heap doubles)
-# Lower value = more frequent GC = lower peak RAM, higher CPU
-# 75 is a good balance for a log server
-Environment=GOGC=75
-
-# GOMEMLIMIT is a hard memory ceiling for the Go runtime
-# Set to 2.5 GB (leaving RAM for OS, Grafana, Promtail)
-# Format must be in bytes
-Environment=GOMEMLIMIT=2684354560
-
-# GOMAXPROCS limits how many OS threads Go can use simultaneously
-# Set to 2 to share CPU with Grafana and Promtail
-Environment=GOMAXPROCS=2
-EOF
-```
-
----
-
-## Grafana Resource Configuration
-
-### Grafana Application-Level Resource Settings
-
-```bash
-sudo tee /etc/grafana/grafana.ini > /dev/null <<'EOF'
-[server]
-http_port = 3000
-domain = localhost
-root_url = http://localhost:3000/
-
-# Number of HTTP workers serving dashboard requests
-# 4 cores shared: keep at 2 to avoid starving Loki
-[server]
-router_logging = false
-
-[database]
-# Grafana uses SQLite by default which is fine for single server
-# SQLite file is stored at /var/lib/grafana/grafana.db
-type = sqlite3
-path = /var/lib/grafana/grafana.db
-
-# Maximum number of open SQLite connections
-# Keep low for SQLite - it does not benefit from many connections
-max_open_conn = 10
-max_idle_conn = 5
-conn_max_lifetime = 14400
-
-[dataproxy]
-# Timeout for data source queries sent to Loki and Prometheus
-timeout = 30
-dial_timeout = 10
-keep_alive_seconds = 30
-
-# Maximum idle connections to each data source
-idle_conn_timeout_seconds = 90
-
-[analytics]
-reporting_enabled = false
-check_for_updates = false
-
-[log]
-mode = console
-level = warn
-
-[log.console]
-format = text
-
-[paths]
-data = /var/lib/grafana
-logs = /var/log/grafana
-plugins = /var/lib/grafana/plugins
-provisioning = /etc/grafana/provisioning
-
-[alerting]
-enabled = true
-# Maximum concurrent alert rule evaluations
-# Keep at 1-2 on a shared server
-concurrent_render_limit = 2
-
-[rendering]
-# Disable server-side rendering to save RAM if you do not need PNG exports
-# If disabled, panel image rendering in alerts will not work
-server_url =
-callback_url =
-
-[feature_toggles]
-# Disable unused features to reduce background CPU usage
-enable =
-EOF
-```
-
-### Grafana Go Runtime Settings
-
-```bash
-sudo mkdir -p /etc/systemd/system/grafana-server.service.d/
-
-sudo tee /etc/systemd/system/grafana-server.service.d/runtime.conf > /dev/null <<'EOF'
-[Service]
-Environment=GOGC=100
-# Hard memory ceiling: 512 MB
-Environment=GOMEMLIMIT=536870912
-Environment=GOMAXPROCS=1
-EOF
-```
-
----
-
-## Promtail Resource Configuration
-
-Promtail is lightweight by design. On the observability server itself it only tails local system logs. The main Promtail resource concern is on app nodes where it watches many log files simultaneously.
-
-### Promtail Application-Level Resource Settings
-
-```bash
-sudo tee /etc/promtail/promtail.yml > /dev/null <<'EOF'
-server:
-  http_listen_port: 9080
-  grpc_listen_port: 0
-  log_level: warn
-
-positions:
-  # Stores the last-read byte position for each file
-  # Stored on disk so Promtail resumes after restart
-  filename: /var/lib/promtail/positions.yaml
-
-  # How often to sync positions to disk
-  # More frequent = safer recovery, more disk I/O
-  sync_period: 30s
-
-clients:
-  - url: http://localhost:3100/loki/api/v1/push
-
-    # Batch settings: controls how much data is buffered
-    # before sending a push request to Loki
-    # Larger batches = fewer HTTP requests = less CPU
-    # but more RAM used while batching
-    batchwait: 1s
-    batchsize: 1048576     # 1 MB batch size
-
-    # Retry settings
-    backoff_config:
-      min_period: 500ms
-      max_period: 5m
-      max_retries: 10
-
-    timeout: 10s
+sudo tee /etc/prometheus/prometheus.yml > /dev/null <<'EOF'
+global:
+  # Reduced scrape frequency on shared server to lower CPU usage
+  scrape_interval: 30s
+  evaluation_interval: 30s
+  scrape_timeout: 10s
 
 scrape_configs:
-
-  - job_name: system
+  - job_name: "prometheus"
     static_configs:
-      - targets: ["localhost"]
+      - targets: ["localhost:9090"]
+
+  - job_name: "node-observability-server"
+    static_configs:
+      - targets: ["localhost:9100"]
+
+  - job_name: "loki"
+    static_configs:
+      - targets: ["localhost:3100"]
+
+  - job_name: "node-app-01"
+    static_configs:
+      - targets: ["10.10.10.10:9100"]
         labels:
-          job: system
-          host: observability-server
-          env: production
-          __path__: /var/log/{messages,secure,cron}
-    pipeline_stages:
-      - regex:
-          expression: '(?P<level>error|warn|info|debug|ERROR|WARN|INFO|DEBUG)'
-      - labels:
-          level:
-EOF
-```
+          instance: "app-node-01"
 
-### Promtail Go Runtime Settings
+  - job_name: "node-app-02"
+    static_configs:
+      - targets: ["10.10.10.11:9100"]
+        labels:
+          instance: "app-node-02"
 
-```bash
-sudo mkdir -p /etc/systemd/system/promtail.service.d/
+  - job_name: "node-app-03"
+    static_configs:
+      - targets: ["10.10.10.12:9100"]
+        labels:
+          instance: "app-node-03"
 
-sudo tee /etc/systemd/system/promtail.service.d/runtime.conf > /dev/null <<'EOF'
-[Service]
-Environment=GOGC=100
-# Hard memory ceiling: 256 MB
-Environment=GOMEMLIMIT=268435456
-Environment=GOMAXPROCS=1
+  - job_name: "node-app-04"
+    static_configs:
+      - targets: ["10.10.10.13:9100"]
+        labels:
+          instance: "app-node-04"
 EOF
 ```
 
 ---
 
-## Systemd Resource Controls
+## Model 2: Separate Server Deployment
 
-Systemd cgroups provide a second layer of enforcement on top of application-level limits. Even if a service has a bug causing a memory leak, systemd will kill and restart it before it can affect other services.
+Each tool runs on its own dedicated server. Every server has its full
+resources available to one service only. This eliminates resource
+contention and allows independent scaling and failure isolation.
 
-### Loki Systemd Service with Resource Controls
+### Separate Server Architecture
+
+```
++------------------+     +------------------+     +------------------+
+|  Loki Server     |     | Prometheus Server|     |  Grafana Server  |
+|  10.10.10.20     |     |  10.10.10.21     |     |  10.10.10.22     |
+|                  |     |                  |     |                  |
+|  Recommended:    |     |  Recommended:    |     |  Recommended:    |
+|  4 GB RAM        |     |  4 GB RAM        |     |  2 GB RAM        |
+|  2 CPU cores     |     |  2 CPU cores     |     |  2 CPU cores     |
+|  100 GB disk     |     |  50 GB disk      |     |  20 GB disk      |
++--------+---------+     +--------+---------+     +--------+---------+
+         ^                        ^                        |
+         |                        |                        |
+    Promtail push            Node Exporter            Queries Loki
+    from app nodes           scrape from              Queries Prometheus
+    (port 3100)              app nodes (9100)         (port 3100, 9090)
+         ^                        ^
+         |                        |
++--------+---------+     +--------+---------+
+|  App Node 01     |     |  App Node 02-04  |
+|  10.10.10.10     |     |  10.10.10.11-13  |
+|                  |     |                  |
+|  Promtail        |     |  Promtail        |
+|  Node Exporter   |     |  Node Exporter   |
++------------------+     +------------------+
+```
+
+---
+
+### Loki Server
+
+Dedicated server for Loki. All RAM and CPU goes to Loki only.
+
+#### Loki Server: Recommended Specs
+
+| Resource | Minimum | Recommended |
+|---|---|---|
+| RAM | 4 GB | 8 GB |
+| CPU | 2 cores | 4 cores |
+| Disk | 50 GB | 100 GB |
+| Network | 100 Mbps | 1 Gbps |
+
+The disk size depends entirely on your log volume and retention period.
+Calculate as: (average MB/s ingestion rate) x (retention seconds) x 1.3
+The 1.3 factor accounts for index overhead and WAL.
+
+For example, 1 MB/s ingestion with 72h retention:
+1 MB/s x 259200 seconds x 1.3 = approximately 337 GB
+
+#### Loki Server: RAM Allocation (4 GB example)
+
+```
++-------------------------------------------------------------------+
+|  Purpose               | Size    | Config location               |
++-------------------------------------------------------------------+
+|  Chunk read cache      | 1024 MB | chunk_store_config            |
+|  Query results cache   |  512 MB | query_range.results_cache     |
+|  Ingester chunks (RAM) |  768 MB | ingester settings             |
+|  WAL replay ceiling    |  512 MB | ingester.wal                  |
+|  OS and page cache     | 1280 MB | OS managed                    |
++-------------------------------------------------------------------+
+|  Total                 | 4096 MB                                  |
++-------------------------------------------------------------------+
+```
+
+#### Loki Server: RAM Allocation (8 GB example)
+
+```
++-------------------------------------------------------------------+
+|  Purpose               | Size    | Config location               |
++-------------------------------------------------------------------+
+|  Chunk read cache      | 2048 MB | chunk_store_config            |
+|  Query results cache   | 1024 MB | query_range.results_cache     |
+|  Ingester chunks (RAM) | 1536 MB | ingester settings             |
+|  WAL replay ceiling    |  512 MB | ingester.wal                  |
+|  OS and page cache     | 2976 MB | OS managed                    |
++-------------------------------------------------------------------+
+|  Total                 | 8096 MB                                  |
++-------------------------------------------------------------------+
+```
+
+#### Loki Server: Disk Layout (100 GB)
+
+```
++-------------------------------------------------------------------+
+|  Path                     | Size   | Purpose                     |
++-------------------------------------------------------------------+
+|  / (OS root)              |  10 GB | OS, binaries                |
+|  /var/lib/loki/chunks     |  65 GB | Compressed log chunks       |
+|  /var/lib/loki/wal        |  10 GB | Write-ahead log             |
+|  /var/lib/loki/tsdb-index |   5 GB | TSDB index                  |
+|  /var/lib/loki/tsdb-cache |   2 GB | Index cache                 |
+|  /var/lib/loki/compactor  |   3 GB | Compactor workspace         |
+|  /var/log                 |   3 GB | Journald                    |
+|  Headroom                 |   2 GB | Buffer                      |
++-------------------------------------------------------------------+
+|  Total                    | 100 GB                               |
++-------------------------------------------------------------------+
+```
+
+#### Loki Server: OS Tuning
+
+```bash
+sudo tee /etc/security/limits.d/loki.conf > /dev/null <<'EOF'
+loki    soft    nofile      131072
+loki    hard    nofile      131072
+loki    soft    nproc       65536
+loki    hard    nproc       65536
+EOF
+```
+
+```bash
+sudo tee /etc/sysctl.d/99-loki.conf > /dev/null <<'EOF'
+fs.file-max = 1048576
+fs.inotify.max_user_watches = 524288
+net.core.rmem_max = 268435456
+net.core.wmem_max = 268435456
+net.core.somaxconn = 65536
+vm.swappiness = 10
+vm.dirty_ratio = 20
+vm.dirty_background_ratio = 5
+vm.max_map_count = 262144
+EOF
+
+sudo sysctl -p /etc/sysctl.d/99-loki.conf
+```
+
+#### Loki Server: Systemd Service
 
 ```bash
 sudo tee /etc/systemd/system/loki.service > /dev/null <<'EOF'
 [Unit]
 Description=Loki Log Aggregation System
 After=network.target
-Documentation=https://grafana.com/docs/loki/latest/
 
 [Service]
 User=loki
 Group=loki
 ExecStart=/usr/local/bin/loki -config.file=/etc/loki/loki.yml
-ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=10s
-TimeoutStopSec=30s
-
+TimeoutStopSec=60s
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=loki
 
-# File descriptor limit
-LimitNOFILE=65536
-# Process limit
-LimitNPROC=32768
-# Prevent core dumps
+LimitNOFILE=131072
+LimitNPROC=65536
 LimitCORE=0
 
-# Systemd cgroup resource controls
-# CPU: allow Loki to use up to 2 full cores (200%)
-CPUQuota=200%
-# CPU scheduling weight (higher = more CPU time vs other services)
-CPUWeight=60
+# Dedicated server: Loki gets all the RAM and all CPU cores
+# GOMEMLIMIT set to 85% of total RAM (3.4 GB on a 4 GB server)
+# On 8 GB server: change GOMEMLIMIT=6871947674
+Environment=GOGC=75
+Environment=GOMEMLIMIT=3650722201
+Environment=GOMAXPROCS=2
 
-# Memory: hard limit of 3 GB
-# If Loki exceeds this, systemd kills and restarts it
-MemoryMax=3G
-# Soft warning threshold at 2.5 GB
-MemoryHigh=2560M
-# Startup memory allowance
-MemorySwapMax=0
-
-# I/O weight (Loki does the most disk I/O)
-IOWeight=60
+# No CPU quota on a dedicated server - use all available CPU
+# No MemoryMax hard limit - let GOMEMLIMIT in Go handle it
+# IOWeight=100 is the default maximum
+IOWeight=100
 
 [Install]
 WantedBy=multi-user.target
 EOF
 ```
 
-### Grafana Systemd Service with Resource Controls
+#### Loki Server: Application Config (4 GB RAM, 2 CPU)
+
+```bash
+sudo tee /etc/loki/loki.yml > /dev/null <<'EOF'
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+  log_level: warn
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /var/lib/loki
+  storage:
+    filesystem:
+      chunks_directory: /var/lib/loki/chunks
+      rules_directory: /var/lib/loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+ingester:
+  # Dedicated server: can hold chunks in RAM longer before flushing
+  chunk_idle_period: 1h
+  max_chunk_age: 2h
+  chunk_target_size: 1048576
+  chunk_retain_period: 30s
+  # More concurrent flushes: dedicated I/O
+  concurrent_flushes: 4
+  wal:
+    dir: /var/lib/loki/wal
+    checkpoint_duration: 5m
+    flush_on_shutdown: true
+    replay_memory_ceiling: 512MB
+
+querier:
+  # Dedicated server: use more concurrent queriers
+  max_concurrent: 8
+  query_timeout: 2m
+
+query_range:
+  split_queries_by_interval: 1h
+  parallelise_shardable_queries: true
+  results_cache:
+    cache:
+      embedded_cache:
+        enabled: true
+        # Larger cache on dedicated server: 512 MB
+        max_size_mb: 512
+        ttl: 2h
+
+compactor:
+  working_directory: /var/lib/loki/compactor
+  compaction_interval: 10m
+  retention_enabled: true
+  retention_delete_delay: 2h
+  # More workers: dedicated I/O available
+  retention_delete_worker_count: 100
+  delete_request_store: filesystem
+
+storage_config:
+  tsdb_shipper:
+    active_index_directory: /var/lib/loki/tsdb-index
+    cache_location: /var/lib/loki/tsdb-cache
+    cache_ttl: 24h
+
+chunk_store_config:
+  chunk_cache_config:
+    embedded_cache:
+      enabled: true
+      # Large chunk cache on dedicated server: 1024 MB
+      max_size_mb: 1024
+      ttl: 4h
+
+limits_config:
+  retention_period: 72h
+  ingestion_rate_mb: 32
+  ingestion_burst_size_mb: 64
+  max_streams_per_user: 50000
+  max_entries_limit_per_query: 100000
+  max_query_lookback: 72h
+  max_query_length: 72h
+  per_stream_rate_limit: 5MB
+  per_stream_rate_limit_burst: 25MB
+
+table_manager:
+  retention_deletes_enabled: true
+  retention_period: 72h
+EOF
+```
+
+---
+
+### Prometheus Server
+
+Dedicated server for Prometheus metric collection and storage.
+
+#### Prometheus Server: Recommended Specs
+
+| Resource | Minimum | Recommended |
+|---|---|---|
+| RAM | 2 GB | 4 GB |
+| CPU | 1 core | 2 cores |
+| Disk | 30 GB | 50 GB |
+| Network | 100 Mbps | 1 Gbps |
+
+Prometheus RAM usage scales with the number of active time series in memory
+(the head block). Estimate 2 to 3 bytes per sample per scrape interval.
+With 5 targets each exposing 1000 metrics at 15s scrape interval, expect
+approximately 300 MB RAM for the head block alone.
+
+#### Prometheus Server: RAM Allocation (4 GB)
+
+```
++-------------------------------------------------------------------+
+|  Purpose                    | Size   | Notes                     |
++-------------------------------------------------------------------+
+|  TSDB head block (RAM)      | 1024 MB| Active time series        |
+|  TSDB query cache           |  512 MB| Query result cache        |
+|  WAL (in-memory buffer)     |  256 MB| Pre-flush write buffer    |
+|  Remote write buffer        |  128 MB| If using remote write     |
+|  OS and page cache          | 2176 MB| TSDB block read cache     |
++-------------------------------------------------------------------+
+|  Total                      | 4096 MB                            |
++-------------------------------------------------------------------+
+```
+
+#### Prometheus Server: Disk Layout (50 GB)
+
+```
++-------------------------------------------------------------------+
+|  Path                         | Size  | Purpose                  |
++-------------------------------------------------------------------+
+|  / (OS root)                  | 10 GB | OS, binaries             |
+|  /var/lib/prometheus          | 35 GB | TSDB blocks and WAL      |
+|    blocks/                    | 28 GB | Compressed metric blocks |
+|    wal/                       |  5 GB | Write-ahead log          |
+|    chunks_head/               |  2 GB | Head chunk files         |
+|  /var/log                     |  3 GB | Journald                 |
+|  Headroom                     |  2 GB | Buffer                   |
++-------------------------------------------------------------------+
+|  Total                        | 50 GB                            |
++-------------------------------------------------------------------+
+```
+
+Prometheus TSDB retention of 30 days at a typical scrape load of 5 targets
+with 1000 metrics each uses approximately 2 to 5 GB on disk due to
+Prometheus compression. The 35 GB allocation here is generous.
+
+#### Prometheus Server: OS Tuning
+
+```bash
+sudo tee /etc/security/limits.d/prometheus.conf > /dev/null <<'EOF'
+prometheus    soft    nofile      65536
+prometheus    hard    nofile      65536
+prometheus    soft    nproc       32768
+prometheus    hard    nproc       32768
+EOF
+```
+
+```bash
+sudo tee /etc/sysctl.d/99-prometheus.conf > /dev/null <<'EOF'
+fs.file-max = 524288
+vm.swappiness = 10
+vm.dirty_ratio = 20
+vm.dirty_background_ratio = 5
+net.core.somaxconn = 32768
+EOF
+
+sudo sysctl -p /etc/sysctl.d/99-prometheus.conf
+```
+
+#### Prometheus Server: Systemd Service
+
+```bash
+sudo tee /etc/systemd/system/prometheus.service > /dev/null <<'EOF'
+[Unit]
+Description=Prometheus Monitoring
+After=network.target
+
+[Service]
+User=prometheus
+Group=prometheus
+ExecStart=/usr/local/bin/prometheus \
+  --config.file=/etc/prometheus/prometheus.yml \
+  --storage.tsdb.path=/var/lib/prometheus \
+  --storage.tsdb.retention.time=30d \
+  --storage.tsdb.wal-compression \
+  --storage.tsdb.min-block-duration=2h \
+  --storage.tsdb.max-block-duration=25h \
+  --web.listen-address=0.0.0.0:9090 \
+  --web.enable-lifecycle \
+  --query.max-concurrency=10 \
+  --query.timeout=2m
+Restart=on-failure
+RestartSec=10s
+StandardOutput=journal
+StandardError=journal
+
+LimitNOFILE=65536
+LimitNPROC=32768
+
+# Dedicated server: Prometheus gets all CPU
+# GOMEMLIMIT: 85% of 4 GB = 3.4 GB
+Environment=GOGC=100
+Environment=GOMEMLIMIT=3650722201
+Environment=GOMAXPROCS=2
+
+[Install]
+WantedBy=multi-user.target
+EOF
+```
+
+---
+
+### Grafana Server
+
+Dedicated server for Grafana. Grafana is stateless in terms of metrics and
+logs (all data lives in Loki and Prometheus). Its disk needs are minimal.
+
+#### Grafana Server: Recommended Specs
+
+| Resource | Minimum | Recommended |
+|---|---|---|
+| RAM | 512 MB | 2 GB |
+| CPU | 1 core | 2 cores |
+| Disk | 10 GB | 20 GB |
+| Network | 100 Mbps | 1 Gbps |
+
+Grafana RAM usage is dominated by panel rendering (generating PNG images
+for alerts) and dashboard panel query result buffering. For a team of fewer
+than 20 concurrent dashboard viewers, 2 GB RAM is more than sufficient.
+
+#### Grafana Server: RAM Allocation (2 GB)
+
+```
++-------------------------------------------------------------------+
+|  Purpose                    | Size   | Notes                     |
++-------------------------------------------------------------------+
+|  Grafana process heap       |  512 MB| Dashboard, alerts, API    |
+|  SQLite database cache      |  128 MB| Dashboard and user store  |
+|  Panel image renderer       |  256 MB| Alert screenshots         |
+|  OS and page cache          | 1152 MB| Plugin files, static      |
++-------------------------------------------------------------------+
+|  Total                      | 2048 MB                            |
++-------------------------------------------------------------------+
+```
+
+#### Grafana Server: Disk Layout (20 GB)
+
+```
++-------------------------------------------------------------------+
+|  Path                    | Size  | Purpose                       |
++-------------------------------------------------------------------+
+|  / (OS root)             | 10 GB | OS, binaries                  |
+|  /var/lib/grafana        |  8 GB | SQLite DB, plugins, images    |
+|    grafana.db            |  1 GB | Dashboard and user database   |
+|    plugins/              |  2 GB | Installed plugins             |
+|    png/                  |  2 GB | Alert panel images            |
+|    sessions/             |  1 GB | User session data             |
+|  /var/log/grafana        |  1 GB | Grafana logs                  |
+|  Headroom                |  1 GB | Buffer                        |
++-------------------------------------------------------------------+
+|  Total                   | 20 GB                                 |
++-------------------------------------------------------------------+
+```
+
+#### Grafana Server: OS Tuning
+
+```bash
+sudo tee /etc/security/limits.d/grafana.conf > /dev/null <<'EOF'
+grafana    soft    nofile      16384
+grafana    hard    nofile      16384
+grafana    soft    nproc        8192
+grafana    hard    nproc        8192
+EOF
+```
+
+```bash
+sudo tee /etc/sysctl.d/99-grafana.conf > /dev/null <<'EOF'
+fs.file-max = 131072
+vm.swappiness = 10
+net.core.somaxconn = 16384
+EOF
+
+sudo sysctl -p /etc/sysctl.d/99-grafana.conf
+```
+
+#### Grafana Server: Systemd Service
 
 ```bash
 sudo tee /etc/systemd/system/grafana-server.service > /dev/null <<'EOF'
@@ -691,29 +1050,127 @@ ExecStart=/usr/sbin/grafana-server \
   --packaging=rpm
 Restart=on-failure
 RestartSec=10s
-
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=grafana
 
 LimitNOFILE=16384
 LimitNPROC=8192
 
-CPUQuota=50%
-CPUWeight=20
-
-MemoryMax=512M
-MemoryHigh=450M
-MemorySwapMax=0
-
-IOWeight=20
+# Dedicated server: Grafana gets all CPU
+# GOMEMLIMIT: 85% of 2 GB = 1.7 GB
+Environment=GOGC=100
+Environment=GOMEMLIMIT=1825361101
+Environment=GOMAXPROCS=2
 
 [Install]
 WantedBy=multi-user.target
 EOF
 ```
 
-### Promtail Systemd Service with Resource Controls
+#### Grafana Application Config for Dedicated Server
+
+```bash
+sudo tee /etc/grafana/grafana.ini > /dev/null <<'EOF'
+[server]
+http_port = 3000
+domain = 10.10.10.22
+root_url = http://10.10.10.22:3000/
+
+[database]
+type = sqlite3
+path = /var/lib/grafana/grafana.db
+# Dedicated server: allow more concurrent DB connections
+max_open_conn = 25
+max_idle_conn = 10
+conn_max_lifetime = 14400
+
+[dataproxy]
+timeout = 60
+dial_timeout = 10
+keep_alive_seconds = 30
+# More idle connections allowed on dedicated server
+idle_conn_timeout_seconds = 90
+max_idle_connections = 100
+
+[analytics]
+reporting_enabled = false
+check_for_updates = false
+
+[log]
+mode = console
+level = warn
+
+[paths]
+data = /var/lib/grafana
+logs = /var/log/grafana
+plugins = /var/lib/grafana/plugins
+
+[alerting]
+enabled = true
+# Dedicated server: allow more concurrent alert evaluations
+concurrent_render_limit = 5
+EOF
+```
+
+---
+
+### Promtail on App Nodes
+
+Promtail runs on every application node. It is very lightweight. The
+resource allocation below applies to each individual app node.
+
+#### App Node: Recommended Specs for Promtail
+
+Promtail itself needs very little. These are the minimum additions to
+whatever your application already requires:
+
+| Resource | Promtail Addition |
+|---|---|
+| RAM | 128 to 256 MB on top of app requirements |
+| CPU | 0.1 to 0.25 cores on top of app requirements |
+| Disk | 100 MB for positions file and binary |
+| Network | Outbound to Loki server port 3100 |
+
+#### App Node: Promtail RAM Breakdown
+
+```
++-------------------------------------------------------------------+
+|  Purpose              | Size   | Notes                           |
++-------------------------------------------------------------------+
+|  Log batch buffer     |  64 MB | Held before pushing to Loki     |
+|  Pipeline stage RAM   |  32 MB | Regex, multiline processing     |
+|  File handle cache    |  32 MB | Open file descriptors           |
+|  Go runtime overhead  |  32 MB | Goroutines, GC                  |
+|  OS overhead          |  96 MB | Buffer                          |
++-------------------------------------------------------------------+
+|  Total                | 256 MB                                   |
++-------------------------------------------------------------------+
+```
+
+#### App Node: Promtail OS Tuning
+
+```bash
+sudo tee /etc/security/limits.d/promtail.conf > /dev/null <<'EOF'
+promtail    soft    nofile      65536
+promtail    hard    nofile      65536
+promtail    soft    nproc       16384
+promtail    hard    nproc       16384
+EOF
+```
+
+```bash
+sudo tee /etc/sysctl.d/99-promtail.conf > /dev/null <<'EOF'
+# Inotify watches: one per log file being watched
+# With multiple Laravel apps and subdirectories, set high
+fs.inotify.max_user_watches = 524288
+fs.inotify.max_user_instances = 512
+fs.file-max = 131072
+EOF
+
+sudo sysctl -p /etc/sysctl.d/99-promtail.conf
+```
+
+#### App Node: Promtail Systemd Service
 
 ```bash
 sudo tee /etc/systemd/system/promtail.service > /dev/null <<'EOF'
@@ -727,296 +1184,161 @@ Group=promtail
 ExecStart=/usr/local/bin/promtail -config.file=/etc/promtail/promtail.yml
 Restart=on-failure
 RestartSec=5s
-
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=promtail
 
-LimitNOFILE=16384
-LimitNPROC=8192
+LimitNOFILE=65536
+LimitNPROC=16384
 
-CPUQuota=50%
+Environment=GOGC=100
+Environment=GOMEMLIMIT=251658240
+Environment=GOMAXPROCS=1
+
+# Cap Promtail to avoid competing with the main application
+CPUQuota=25%
 CPUWeight=10
-
 MemoryMax=256M
 MemoryHigh=220M
 MemorySwapMax=0
-
-IOWeight=20
 
 [Install]
 WantedBy=multi-user.target
 EOF
 ```
 
-**Apply all systemd changes**
+#### App Node: Promtail Application Config
+
+Point clients URL to the dedicated Loki server, not localhost.
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl restart loki
-sudo systemctl restart grafana-server
-sudo systemctl restart promtail
-```
-
----
-
-## Verify All Limits Are Applied
-
-Run these checks after restarting all services to confirm every limit is in effect.
-
-### File Descriptor Limits
-
-```bash
-# Loki
-cat /proc/$(pgrep -x loki)/limits | grep -E "open files|processes"
-
-# Grafana
-cat /proc/$(pgrep -f grafana-server)/limits | grep -E "open files|processes"
-
-# Promtail
-cat /proc/$(pgrep -x promtail)/limits | grep -E "open files|processes"
-```
-
-Expected output for Loki:
-```
-Max open files            65536                65536                files
-Max processes             32768                32768                processes
-```
-
-### Memory Limits via Systemd
-
-```bash
-# Check cgroup memory limits for each service
-systemctl show loki.service | grep -E "Memory|CPU"
-systemctl show grafana-server.service | grep -E "Memory|CPU"
-systemctl show promtail.service | grep -E "Memory|CPU"
-```
-
-### Current Memory and CPU Usage
-
-```bash
-# Summary of all services at once
-systemd-cgtop -d 1 -n 3
-
-# Per-service detail
-systemctl status loki | grep Memory
-systemctl status grafana-server | grep Memory
-systemctl status promtail | grep Memory
-```
-
-### Verify inotify Limits (Important for Promtail)
-
-```bash
-# Current limit
-cat /proc/sys/fs/inotify/max_user_watches
-
-# Current usage by promtail
-cat /proc/$(pgrep -x promtail)/fdinfo/* 2>/dev/null | grep -c inotify || \
-  echo "check: ls /proc/$(pgrep -x promtail)/fd | wc -l"
-```
-
-### Verify Disk Space Allocation
-
-```bash
-# Show disk usage per Loki directory
-du -sh /var/lib/loki/*
-du -sh /var/lib/grafana
-du -sh /var/lib/promtail
-
-# Show overall disk layout
-df -h
-```
-
----
-
-## Monitoring Resource Usage
-
-Use these commands for ongoing monitoring of resource consumption.
-
-### Real-time Service Resource Usage
-
-```bash
-# Watch CPU and memory for all three services every 2 seconds
-watch -n 2 'ps aux | grep -E "loki|grafana|promtail" | grep -v grep | \
-  awk "{printf \"%-12s %5s %5s %s\n\", \$1, \$3, \$4, \$11}"'
-```
-
-### Loki Internal Metrics
-
-```bash
-# Ingester: how many chunks are in memory right now
-curl -s http://localhost:3100/metrics | grep ingester_memory_chunks
-
-# Ingester: how much memory the chunk store is using
-curl -s http://localhost:3100/metrics | grep ingester_chunk_utilization
-
-# How many active streams are open
-curl -s http://localhost:3100/metrics | grep ingester_streams_created_total
-
-# WAL size
-du -sh /var/lib/loki/wal/
-
-# Compactor: retention deletion status
-curl -s http://localhost:3100/metrics | grep loki_compactor
-```
-
-### Disk Growth Rate
-
-```bash
-# Check how fast Loki chunks directory is growing
-# Run this twice with a gap to measure write rate
-du -sh /var/lib/loki/chunks
-sleep 60
-du -sh /var/lib/loki/chunks
-```
-
-### Open File Descriptors per Service
-
-```bash
-# Loki open file count
-ls /proc/$(pgrep -x loki)/fd | wc -l
-
-# Grafana open file count
-ls /proc/$(pgrep -f grafana-server)/fd | wc -l
-
-# Promtail open file count
-ls /proc/$(pgrep -x promtail)/fd | wc -l
-```
-
----
-
-## Troubleshooting Resource Issues
-
-### Loki Using Too Much RAM
-
-**Symptoms:** `systemctl status loki` shows near or at MemoryMax, OOM kills in journalctl.
-
-```bash
-# Check current memory usage
-systemctl status loki | grep Memory
-
-# Reduce chunk cache in loki.yml
-# Change: max_size_mb: 512 -> max_size_mb: 256
-# Change: max_size_mb: 256 -> max_size_mb: 128 (results cache)
-
-# Reduce ingester chunk age to flush to disk faster
-# Change: max_chunk_age: 1h -> max_chunk_age: 30m
-# Change: chunk_idle_period: 30m -> chunk_idle_period: 15m
-
-# Lower GOMEMLIMIT
-# Change: GOMEMLIMIT=2684354560 -> GOMEMLIMIT=2147483648  (2 GB)
-
-sudo systemctl restart loki
-```
-
-### Loki Using Too Much CPU
-
-**Symptoms:** High load average, Loki CPUQuota throttling in `systemd-cgtop`.
-
-```bash
-# Check if Loki is being CPU throttled
-systemctl status loki | grep CPU
-
-# Reduce concurrent querier goroutines in loki.yml
-# Change: max_concurrent: 4 -> max_concurrent: 2
-
-# Reduce compactor workers
-# Change: retention_delete_worker_count: 50 -> retention_delete_worker_count: 10
-
-# Reduce GOMAXPROCS
-# Change: GOMAXPROCS=2 -> GOMAXPROCS=1
-
-sudo systemctl restart loki
-```
-
-### Disk Filling Up Too Fast
-
-**Symptoms:** `/var/lib/loki` growing faster than expected, disk usage alert.
-
-```bash
-# Check current disk usage breakdown
-du -sh /var/lib/loki/*
-
-# Check if WAL is abnormally large (should be < 1 GB normally)
-du -sh /var/lib/loki/wal
-
-# Check if compactor is running and deleting old chunks
-curl -s http://localhost:3100/metrics | grep compactor_runs_total
-
-# If compactor is not running, force it
-curl -s -X POST http://localhost:3100/loki/api/v1/delete \
-  --data 'match[]={job="php-application"}' \
-  --data "start=1970-01-01T00:00:00Z" \
-  --data "end=$(date -d '73 hours ago' --iso-8601=seconds)"
-
-# Verify retention is enabled in loki.yml
-grep retention /etc/loki/loki.yml
-```
-
-### Promtail Too Many Open Files
-
-**Symptoms:** `failed to start tailer: too many open files` in journalctl.
-
-```bash
-# Check current open file count
-ls /proc/$(pgrep -x promtail)/fd | wc -l
-
-# Compare to limit
-cat /proc/$(pgrep -x promtail)/limits | grep "open files"
-
-# If count is near limit, increase in limits.d config
-sudo tee -a /etc/security/limits.d/observability.conf > /dev/null <<'EOF'
-promtail     soft    nofile      32768
-promtail     hard    nofile      32768
+sudo tee /etc/promtail/promtail.yml > /dev/null <<'EOF'
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+  log_level: warn
+
+positions:
+  filename: /var/lib/promtail/positions.yaml
+  sync_period: 30s
+
+clients:
+  # Point to dedicated Loki server
+  - url: http://10.10.10.20:3100/loki/api/v1/push
+    batchwait: 1s
+    batchsize: 1048576
+    backoff_config:
+      min_period: 500ms
+      max_period: 5m
+      max_retries: 10
+    timeout: 10s
+
+scrape_configs:
+
+  - job_name: php-application
+    static_configs:
+      - targets: ["localhost"]
+        labels:
+          job: php-application
+          host: <HOSTNAME>
+          env: production
+          __path__: /var/apps/*/storage/logs/*.log
+    pipeline_stages:
+      - multiline:
+          firstline: '^\[\d{4}-\d{2}-\d{2}'
+          max_wait_time: 3s
+      - regex:
+          expression: '^\[(?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\] (?P<env>\w+)\.(?P<level>\w+): (?P<message>.*)'
+      - labels:
+          level:
+      - timestamp:
+          source: timestamp
+          format: "2006-01-02 15:04:05"
+
+  - job_name: system
+    static_configs:
+      - targets: ["localhost"]
+        labels:
+          job: system
+          host: <HOSTNAME>
+          env: production
+          __path__: /var/log/{messages,secure,cron}
 EOF
-
-# Also update LimitNOFILE in promtail.service
-sudo sed -i 's/LimitNOFILE=16384/LimitNOFILE=32768/' \
-  /etc/systemd/system/promtail.service
-
-sudo systemctl daemon-reload
-sudo systemctl restart promtail
-```
-
-### Grafana Slow to Load Dashboards
-
-**Symptoms:** Dashboard panels take more than 5 seconds to render.
-
-```bash
-# Check if Grafana is being memory limited
-systemctl status grafana-server | grep Memory
-
-# Check Loki query duration (slow queries cause slow dashboards)
-curl -s http://localhost:3100/metrics | grep query_range_request_duration
-
-# Reduce the time range in Grafana dashboards from "Last 72h" to "Last 6h"
-# Heavy queries scanning 72 hours of logs on 8 GB RAM will always be slow
-
-# Enable query caching in loki.yml if not already enabled
-grep "results_cache" /etc/loki/loki.yml
 ```
 
 ---
 
-## Quick Reference: Resource Limit Values
+## Resource Comparison Table
 
-| Setting | Location | Value | Adjustable |
-|---|---|---|---|
-| Loki MemoryMax | loki.service | 3 GB | Yes |
-| Loki CPUQuota | loki.service | 200% | Yes |
-| Loki LimitNOFILE | loki.service | 65536 | Yes |
-| Loki GOMEMLIMIT | loki.service.d/runtime.conf | 2.5 GB | Yes |
-| Loki GOMAXPROCS | loki.service.d/runtime.conf | 2 | Yes |
-| Loki chunk cache | loki.yml | 512 MB | Yes |
-| Loki results cache | loki.yml | 256 MB | Yes |
-| Loki max concurrent queries | loki.yml | 4 | Yes |
-| Grafana MemoryMax | grafana-server.service | 512 MB | Yes |
-| Grafana CPUQuota | grafana-server.service | 50% | Yes |
-| Grafana GOMEMLIMIT | grafana-server.service.d/runtime.conf | 512 MB | Yes |
-| Promtail MemoryMax | promtail.service | 256 MB | Yes |
-| Promtail CPUQuota | promtail.service | 50% | Yes |
-| Promtail batch size | promtail.yml | 1 MB | Yes |
-| System max file descriptors | sysctl | 524288 | Yes |
-| Inotify max watches | sysctl | 524288 | Yes |
-| Journal max disk use | journald.conf | 2 GB | Yes |
-| Log retention | loki.yml | 72 hours | Yes |
+### RAM Comparison
+
+| Service | Single Server (8 GB total) | Dedicated Server |
+|---|---|---|
+| Loki MemoryMax | 3 GB | No hard cap (GOMEMLIMIT 85% of server RAM) |
+| Loki chunk cache | 256 MB | 1024 MB |
+| Loki results cache | 128 MB | 512 MB |
+| Loki GOMEMLIMIT | 2.75 GB | 3.4 GB (on 4 GB server) |
+| Prometheus MemoryMax | 1 GB | No hard cap |
+| Prometheus GOMEMLIMIT | 900 MB | 3.4 GB (on 4 GB server) |
+| Grafana MemoryMax | 512 MB | No hard cap |
+| Grafana GOMEMLIMIT | 480 MB | 1.7 GB (on 2 GB server) |
+| Promtail MemoryMax | 256 MB | 256 MB (app node) |
+
+### CPU Comparison
+
+| Service | Single Server (4 cores) | Dedicated Server |
+|---|---|---|
+| Loki CPUQuota | 200% (2 cores) | No quota (all cores) |
+| Loki GOMAXPROCS | 2 | Equal to server core count |
+| Prometheus CPUQuota | 50% (0.5 cores) | No quota |
+| Prometheus GOMAXPROCS | 1 | Equal to server core count |
+| Grafana CPUQuota | 50% (0.5 cores) | No quota |
+| Grafana GOMAXPROCS | 1 | Equal to server core count |
+| Promtail CPUQuota | 25% on app node | 25% on app node |
+
+### Disk Comparison
+
+| Service | Single Server | Dedicated Server |
+|---|---|---|
+| Loki /var/lib/loki | 60 GB | 90 GB (on 100 GB disk) |
+| Prometheus /var/lib/prometheus | 10 GB | 40 GB (on 50 GB disk) |
+| Grafana /var/lib/grafana | 5 GB | 18 GB (on 20 GB disk) |
+| Promtail /var/lib/promtail | 1 GB | 1 GB (app node) |
+
+### File Descriptor Limits Comparison
+
+| Service | Single Server LimitNOFILE | Dedicated Server LimitNOFILE |
+|---|---|---|
+| Loki | 65536 | 131072 |
+| Prometheus | 65536 | 65536 |
+| Grafana | 16384 | 16384 |
+| Promtail (app node) | 16384 | 65536 |
+
+---
+
+## Which Model to Choose
+
+```
+Is this a production environment serving real users?
+  YES --> Use separate servers
+  NO  --> Single server is fine
+
+Do you need any service to stay up if another crashes?
+  YES --> Use separate servers
+  NO  --> Single server is fine
+
+Is your total log ingestion rate above 5 MB/s?
+  YES --> Use separate servers (single server Loki will struggle)
+  NO  --> Single server is fine
+
+Is your server RAM 16 GB or more?
+  YES --> Single server works well with generous allocations
+  NO  --> Consider separate servers if below 8 GB
+
+Do you have budget for only one server?
+  YES --> Single server, apply all limits from Model 1
+  NO  --> Separate servers for production
+
+Will the number of app nodes grow beyond 10?
+  YES --> Separate servers, especially for Prometheus scrape load
+  NO  --> Single server is fine
+```
