@@ -143,6 +143,62 @@ systemctl reload docker
 
 ---
 
+## Why `./prepare` Is Required
+
+`./prepare` is a Python-based script that **generates all internal configuration files** for Harbor's containers before they start. Harbor containers do not read `harbor.yml` directly.
+
+### The Flow
+
+```
+harbor.yml  ──►  ./prepare  ──►  generated configs  ──►  docker compose up
+```
+
+Harbor's containers (nginx, core, jobservice, etc.) each have their own config files. `./prepare` reads `harbor.yml` and renders those configs from Jinja2 templates.
+
+### What It Actually Does
+
+| Action | Detail |
+|---|---|
+| Reads `harbor.yml` | Your cert paths, hostname, DB passwords, etc. |
+| Renders templates from `common/config/` | Generates nginx.conf, core config, jobservice config, registryctl config, etc. |
+| Copies cert files into the nginx config volume | Puts `harbor.crt` and `harbor.key` where the nginx container can read them |
+| Writes rendered configs to `common/config/` | These are bind-mounted into the containers at runtime |
+
+### Why It's Required After a Cert Change
+
+When you replace cert files on disk and skip `./prepare`, the nginx container still has the old cert baked into its config volume. The new files on your host are never picked up.
+
+```bash
+# Without ./prepare:
+docker compose down
+docker compose up -d
+# nginx still serves the OLD cert — nothing changed inside the container
+```
+
+```bash
+# With ./prepare:
+docker compose down
+./prepare          # re-renders nginx.conf, copies new cert into config volume
+docker compose up -d
+# nginx now serves the NEW cert
+```
+
+### Where You Can See the Output
+
+```bash
+# After running ./prepare, rendered configs land here:
+ls -la /root/harbor/common/config/
+
+# Your cert gets copied here — this is what nginx actually uses:
+ls -la /root/harbor/common/config/nginx/cert/
+```
+
+The nginx container bind-mounts `/root/harbor/common/config/nginx/` — so whatever `./prepare` writes there is what nginx uses at runtime.
+
+> **TL;DR** — `harbor.yml` is the source of truth, but Harbor containers never read it directly. `./prepare` is the translator that converts it into actual runtime configs. Skipping it means your changes never reach the containers.
+
+---
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
@@ -203,5 +259,3 @@ openssl x509 -req -sha512 -days 365 \
 ```
 
 ---
-
-*Last updated: $(date +%Y-%m-%d)*
