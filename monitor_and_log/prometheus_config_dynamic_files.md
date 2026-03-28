@@ -24,7 +24,7 @@ A comprehensive guide on how to organize Prometheus scrape configurations into s
 
 ## Overview
 
-As your Prometheus monitoring setup grows, managing all scrape configurations in a single `prometheus.yml` file becomes difficult. This guide covers two approaches to split configurations:
+As Prometheus monitoring setup grows, managing all scrape configurations in a single `prometheus.yml` file becomes difficult. This guide covers two approaches to split configurations:
 
 - **Option 1**: Static configuration split using `scrape_config_files` (manual reload required)
 - **Option 2**: Dynamic target management using `file_sd_configs` (auto-reload for targets)
@@ -692,7 +692,7 @@ EOF
 
 **Use Option 1 when:**
 
-- Your infrastructure is stable
+-  infrastructure is stable
 - Targets rarely change
 - You prefer simpler directory structure
 - You have a small number of targets
@@ -822,7 +822,7 @@ ps aux | grep prometheus | grep -o "\-\-web.enable-lifecycle"
 
 6. **Monitor configuration health**: Watch `prometheus_config_last_reload_successful` metric.
 
-7. **Document your setup**: Maintain documentation for your configuration structure.
+7. **Document  setup**: Maintain documentation for  configuration structure.
 
 8. **Test in staging first**: Validate changes in non-production environment.
 
