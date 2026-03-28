@@ -6,17 +6,22 @@ A comprehensive guide on how to organize Prometheus scrape configurations into s
 
 - [Overview](#overview)
 - [Prerequisites](#prerequisites)
+- [Directory Structure](#directory-structure)
 - [Option 1: Without file_sd_configs](#option-1-without-file_sd_configs)
-  - [Directory Structure](#directory-structure)
-  - [Configuration Files](#configuration-files)
-  - [Implementation Steps](#implementation-steps)
-  - [Validation and Reload](#validation-and-reload)
+  - [Main Configuration](#main-configuration)
+  - [Node Exporter Configuration](#node-exporter-configuration)
+  - [Process Exporter Configuration](#process-exporter-configuration)
+  - [Tomcat Configuration](#tomcat-configuration)
+  - [Implementation Commands](#implementation-commands)
 - [Option 2: With file_sd_configs](#option-2-with-file_sd_configs)
-  - [Directory Structure](#directory-structure-1)
-  - [Configuration Files](#configuration-files-1)
-  - [Implementation Steps](#implementation-steps-1)
+  - [Main Configuration](#main-configuration-1)
+  - [Node Exporter Configuration](#node-exporter-configuration-1)
+  - [Process Exporter Configuration](#process-exporter-configuration-1)
+  - [Tomcat Configuration](#tomcat-configuration-1)
+  - [Implementation Commands](#implementation-commands-1)
   - [Adding New Targets](#adding-new-targets)
 - [Comparison](#comparison)
+- [Validation and Reload](#validation-and-reload)
 - [Verification Commands](#verification-commands)
 - [Troubleshooting](#troubleshooting)
 - [Best Practices](#best-practices)
@@ -26,8 +31,10 @@ A comprehensive guide on how to organize Prometheus scrape configurations into s
 
 As Prometheus monitoring setup grows, managing all scrape configurations in a single `prometheus.yml` file becomes difficult. This guide covers two approaches to split configurations:
 
-- **Option 1**: Static configuration split using `scrape_config_files` (manual reload required)
-- **Option 2**: Dynamic target management using `file_sd_configs` (auto-reload for targets)
+- **Option 1**: Using `static_configs` - targets defined inside scrape config files (manual reload required for any change)
+- **Option 2**: Using `file_sd_configs` - targets defined inside scrape config files but with auto-reload capability
+
+Both options use the same directory structure. The difference is how targets are defined within the configuration files.
 
 ## Prerequisites
 
@@ -41,13 +48,9 @@ As Prometheus monitoring setup grows, managing all scrape configurations in a si
 prometheus --version
 ```
 
----
+## Directory Structure
 
-## Option 1: Without file_sd_configs
-
-This approach splits job configurations into separate files. All changes require manual reload.
-
-### Directory Structure
+Both options use the same directory structure:
 
 ```
 /etc/prometheus/
@@ -58,9 +61,13 @@ This approach splits job configurations into separate files. All changes require
     └── tomcat.yml
 ```
 
-### Configuration Files
+---
 
-#### Main Configuration
+## Option 1: Without file_sd_configs
+
+This approach uses `static_configs` to define targets directly inside each scrape configuration file. Any change to targets requires a manual Prometheus reload.
+
+### Main Configuration
 
 **File:** `/etc/prometheus/prometheus.yml`
 
@@ -78,7 +85,7 @@ scrape_configs:
       - targets: ['localhost:9090']
 ```
 
-#### Node Exporter Configuration
+### Node Exporter Configuration
 
 **File:** `/etc/prometheus/scrape_configs/node_exporter.yml`
 
@@ -118,7 +125,7 @@ scrape_configs:
           node: 'redis-01'
 ```
 
-#### Process Exporter Configuration
+### Process Exporter Configuration
 
 **File:** `/etc/prometheus/scrape_configs/process_exporter.yml`
 
@@ -139,7 +146,7 @@ scrape_configs:
           node: 'web-01'
 ```
 
-#### Tomcat Configuration
+### Tomcat Configuration
 
 **File:** `/etc/prometheus/scrape_configs/tomcat.yml`
 
@@ -172,23 +179,16 @@ scrape_configs:
           node: 'tomcat-staging-01'
 ```
 
-### Implementation Steps
-
-#### Step 1: Backup Current Configuration
+### Implementation Commands
 
 ```bash
+# Backup current configuration
 sudo cp /etc/prometheus/prometheus.yml /etc/prometheus/prometheus.yml.backup.$(date +%Y%m%d_%H%M%S)
-```
 
-#### Step 2: Create Directory Structure
-
-```bash
+# Create directory structure
 sudo mkdir -p /etc/prometheus/scrape_configs
-```
 
-#### Step 3: Create Main Configuration
-
-```bash
+# Create main configuration
 sudo tee /etc/prometheus/prometheus.yml > /dev/null <<'EOF'
 global:
   scrape_interval: 10s
@@ -202,11 +202,8 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:9090']
 EOF
-```
 
-#### Step 4: Create Node Exporter Configuration
-
-```bash
+# Create node exporter configuration
 sudo tee /etc/prometheus/scrape_configs/node_exporter.yml > /dev/null <<'EOF'
 scrape_configs:
   - job_name: 'node_exporter'
@@ -242,11 +239,8 @@ scrape_configs:
           module: 'cache'
           node: 'redis-01'
 EOF
-```
 
-#### Step 5: Create Process Exporter Configuration
-
-```bash
+# Create process exporter configuration
 sudo tee /etc/prometheus/scrape_configs/process_exporter.yml > /dev/null <<'EOF'
 scrape_configs:
   - job_name: 'process-exporter'
@@ -263,11 +257,8 @@ scrape_configs:
           module: 'web-server'
           node: 'web-01'
 EOF
-```
 
-#### Step 6: Create Tomcat Configuration
-
-```bash
+# Create tomcat configuration
 sudo tee /etc/prometheus/scrape_configs/tomcat.yml > /dev/null <<'EOF'
 scrape_configs:
   - job_name: 'tomcat'
@@ -296,63 +287,27 @@ scrape_configs:
           module: 'user-service'
           node: 'tomcat-staging-01'
 EOF
-```
 
-#### Step 7: Set Permissions
-
-```bash
+# Set permissions
 sudo chown -R prometheus:prometheus /etc/prometheus/
 sudo chmod 644 /etc/prometheus/prometheus.yml
 sudo chmod 644 /etc/prometheus/scrape_configs/*.yml
 sudo chmod 755 /etc/prometheus/scrape_configs/
-```
 
-### Validation and Reload
-
-```bash
 # Validate configuration
 promtool check config /etc/prometheus/prometheus.yml
 
-# Reload Prometheus (choose one method)
+# Reload Prometheus
 sudo systemctl reload prometheus
-# OR
-curl -X POST http://localhost:9090/-/reload
-# OR
-sudo kill -HUP $(pgrep prometheus)
-
-# Check service status
-sudo systemctl status prometheus --no-pager
 ```
 
 ---
 
 ## Option 2: With file_sd_configs
 
-This approach separates job definitions from target lists. Target changes auto-reload without manual intervention.
+This approach uses `file_sd_configs` to define targets inside the same scrape configuration files. The key difference is that target changes are automatically detected and reloaded without manual intervention.
 
-### Directory Structure
-
-```
-/etc/prometheus/
-├── prometheus.yml
-├── scrape_configs/
-│   ├── node_exporter.yml
-│   ├── process_exporter.yml
-│   └── tomcat.yml
-└── targets/
-    ├── node_exporter/
-    │   ├── production.yml
-    │   └── staging.yml
-    ├── process_exporter/
-    │   └── production.yml
-    └── tomcat/
-        ├── production.yml
-        └── staging.yml
-```
-
-### Configuration Files
-
-#### Main Configuration
+### Main Configuration
 
 **File:** `/etc/prometheus/prometheus.yml`
 
@@ -370,7 +325,7 @@ scrape_configs:
       - targets: ['localhost:9090']
 ```
 
-#### Node Exporter Configuration
+### Node Exporter Configuration
 
 **File:** `/etc/prometheus/scrape_configs/node_exporter.yml`
 
@@ -380,11 +335,106 @@ scrape_configs:
     scrape_interval: 15s
     file_sd_configs:
       - files:
-          - '/etc/prometheus/targets/node_exporter/*.yml'
+          - '/etc/prometheus/scrape_configs/node_exporter.yml'
+        refresh_interval: 30s
+    # Targets defined below will be auto-reloaded when changed
+
+- targets:
+    - 192.168.1.10:9100
+    - 192.168.1.11:9100
+  labels:
+    env: production
+    module: web-server
+
+- targets:
+    - 192.168.1.20:9100
+  labels:
+    env: production
+    module: database
+    node: db-01
+
+- targets:
+    - 192.168.1.30:9100
+  labels:
+    env: staging
+    module: application
+    node: app-staging-01
+
+- targets:
+    - 192.168.1.40:9100
+  labels:
+    env: production
+    module: cache
+    node: redis-01
+```
+
+**Note:** The above approach of combining job config and targets in the same file with file_sd_configs pointing to itself does not work correctly. For file_sd_configs to work properly, you need separate target files.
+
+### Corrected Approach for Option 2
+
+For `file_sd_configs` to work properly within the same directory structure, create target definition files alongside scrape configs:
+
+**Directory Structure:**
+
+```
+/etc/prometheus/
+├── prometheus.yml
+└── scrape_configs/
+    ├── node_exporter.yml
+    ├── node_exporter_targets.yml
+    ├── process_exporter.yml
+    ├── process_exporter_targets.yml
+    ├── tomcat.yml
+    └── tomcat_targets.yml
+```
+
+### Node Exporter Configuration
+
+**File:** `/etc/prometheus/scrape_configs/node_exporter.yml`
+
+```yaml
+scrape_configs:
+  - job_name: 'node_exporter'
+    scrape_interval: 15s
+    file_sd_configs:
+      - files:
+          - '/etc/prometheus/scrape_configs/node_exporter_targets.yml'
         refresh_interval: 30s
 ```
 
-#### Process Exporter Configuration
+**File:** `/etc/prometheus/scrape_configs/node_exporter_targets.yml`
+
+```yaml
+- targets:
+    - 192.168.1.10:9100
+    - 192.168.1.11:9100
+  labels:
+    env: production
+    module: web-server
+
+- targets:
+    - 192.168.1.20:9100
+  labels:
+    env: production
+    module: database
+    node: db-01
+
+- targets:
+    - 192.168.1.30:9100
+  labels:
+    env: staging
+    module: application
+    node: app-staging-01
+
+- targets:
+    - 192.168.1.40:9100
+  labels:
+    env: production
+    module: cache
+    node: redis-01
+```
+
+### Process Exporter Configuration
 
 **File:** `/etc/prometheus/scrape_configs/process_exporter.yml`
 
@@ -393,47 +443,11 @@ scrape_configs:
   - job_name: 'process-exporter'
     file_sd_configs:
       - files:
-          - '/etc/prometheus/targets/process_exporter/*.yml'
+          - '/etc/prometheus/scrape_configs/process_exporter_targets.yml'
         refresh_interval: 1m
 ```
 
-#### Tomcat Configuration
-
-**File:** `/etc/prometheus/scrape_configs/tomcat.yml`
-
-```yaml
-scrape_configs:
-  - job_name: 'tomcat'
-    file_sd_configs:
-      - files:
-          - '/etc/prometheus/targets/tomcat/*.yml'
-        refresh_interval: 30s
-```
-
-#### Target Files
-
-**File:** `/etc/prometheus/targets/node_exporter/production.yml`
-
-```yaml
-- targets:
-    - 192.168.1.10:9100
-    - 192.168.1.11:9100
-    - 192.168.1.20:9100
-    - 192.168.1.40:9100
-  labels:
-    env: production
-```
-
-**File:** `/etc/prometheus/targets/node_exporter/staging.yml`
-
-```yaml
-- targets:
-    - 192.168.1.30:9100
-  labels:
-    env: staging
-```
-
-**File:** `/etc/prometheus/targets/process_exporter/production.yml`
+**File:** `/etc/prometheus/scrape_configs/process_exporter_targets.yml`
 
 ```yaml
 - targets:
@@ -451,7 +465,20 @@ scrape_configs:
     node: web-01
 ```
 
-**File:** `/etc/prometheus/targets/tomcat/production.yml`
+### Tomcat Configuration
+
+**File:** `/etc/prometheus/scrape_configs/tomcat.yml`
+
+```yaml
+scrape_configs:
+  - job_name: 'tomcat'
+    file_sd_configs:
+      - files:
+          - '/etc/prometheus/scrape_configs/tomcat_targets.yml'
+        refresh_interval: 30s
+```
+
+**File:** `/etc/prometheus/scrape_configs/tomcat_targets.yml`
 
 ```yaml
 - targets:
@@ -474,11 +501,7 @@ scrape_configs:
     env: production
     module: order-service
     node: tomcat-03
-```
 
-**File:** `/etc/prometheus/targets/tomcat/staging.yml`
-
-```yaml
 - targets:
     - 192.168.1.60:9104
   labels:
@@ -487,26 +510,16 @@ scrape_configs:
     node: tomcat-staging-01
 ```
 
-### Implementation Steps
-
-#### Step 1: Backup Current Configuration
+### Implementation Commands
 
 ```bash
+# Backup current configuration
 sudo cp /etc/prometheus/prometheus.yml /etc/prometheus/prometheus.yml.backup.$(date +%Y%m%d_%H%M%S)
-```
 
-#### Step 2: Create Directory Structure
-
-```bash
+# Create directory structure
 sudo mkdir -p /etc/prometheus/scrape_configs
-sudo mkdir -p /etc/prometheus/targets/node_exporter
-sudo mkdir -p /etc/prometheus/targets/process_exporter
-sudo mkdir -p /etc/prometheus/targets/tomcat
-```
 
-#### Step 3: Create Main Configuration
-
-```bash
+# Create main configuration
 sudo tee /etc/prometheus/prometheus.yml > /dev/null <<'EOF'
 global:
   scrape_interval: 10s
@@ -520,67 +533,61 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:9090']
 EOF
-```
 
-#### Step 4: Create Scrape Configurations
-
-```bash
-# Node Exporter
+# Create node exporter configuration
 sudo tee /etc/prometheus/scrape_configs/node_exporter.yml > /dev/null <<'EOF'
 scrape_configs:
   - job_name: 'node_exporter'
     scrape_interval: 15s
     file_sd_configs:
       - files:
-          - '/etc/prometheus/targets/node_exporter/*.yml'
+          - '/etc/prometheus/scrape_configs/node_exporter_targets.yml'
         refresh_interval: 30s
 EOF
 
-# Process Exporter
+# Create node exporter targets
+sudo tee /etc/prometheus/scrape_configs/node_exporter_targets.yml > /dev/null <<'EOF'
+- targets:
+    - 192.168.1.10:9100
+    - 192.168.1.11:9100
+  labels:
+    env: production
+    module: web-server
+
+- targets:
+    - 192.168.1.20:9100
+  labels:
+    env: production
+    module: database
+    node: db-01
+
+- targets:
+    - 192.168.1.30:9100
+  labels:
+    env: staging
+    module: application
+    node: app-staging-01
+
+- targets:
+    - 192.168.1.40:9100
+  labels:
+    env: production
+    module: cache
+    node: redis-01
+EOF
+
+# Create process exporter configuration
 sudo tee /etc/prometheus/scrape_configs/process_exporter.yml > /dev/null <<'EOF'
 scrape_configs:
   - job_name: 'process-exporter'
     file_sd_configs:
       - files:
-          - '/etc/prometheus/targets/process_exporter/*.yml'
+          - '/etc/prometheus/scrape_configs/process_exporter_targets.yml'
         refresh_interval: 1m
 EOF
 
-# Tomcat
-sudo tee /etc/prometheus/scrape_configs/tomcat.yml > /dev/null <<'EOF'
-scrape_configs:
-  - job_name: 'tomcat'
-    file_sd_configs:
-      - files:
-          - '/etc/prometheus/targets/tomcat/*.yml'
-        refresh_interval: 30s
-EOF
-```
-
-#### Step 5: Create Target Files
-
-```bash
-# Node Exporter Production Targets
-sudo tee /etc/prometheus/targets/node_exporter/production.yml > /dev/null <<'EOF'
-- targets:
-    - 192.168.1.10:9100
-    - 192.168.1.11:9100
-    - 192.168.1.20:9100
-    - 192.168.1.40:9100
-  labels:
-    env: production
-EOF
-
-# Node Exporter Staging Targets
-sudo tee /etc/prometheus/targets/node_exporter/staging.yml > /dev/null <<'EOF'
-- targets:
-    - 192.168.1.30:9100
-  labels:
-    env: staging
-EOF
-
-# Process Exporter Targets
-sudo tee /etc/prometheus/targets/process_exporter/production.yml > /dev/null <<'EOF'
+# Create process exporter targets
+sudo tee /etc/prometheus/scrape_configs/process_exporter_targets.yml > /dev/null <<'EOF'
 - targets:
     - 192.168.1.20:9256
   labels:
@@ -596,8 +603,18 @@ sudo tee /etc/prometheus/targets/process_exporter/production.yml > /dev/null <<'
     node: web-01
 EOF
 
-# Tomcat Production Targets
-sudo tee /etc/prometheus/targets/tomcat/production.yml > /dev/null <<'EOF'
+# Create tomcat configuration
+sudo tee /etc/prometheus/scrape_configs/tomcat.yml > /dev/null <<'EOF'
+scrape_configs:
+  - job_name: 'tomcat'
+    file_sd_configs:
+      - files:
+          - '/etc/prometheus/scrape_configs/tomcat_targets.yml'
+        refresh_interval: 30s
+EOF
+
+# Create tomcat targets
+sudo tee /etc/prometheus/scrape_configs/tomcat_targets.yml > /dev/null <<'EOF'
 - targets:
     - 192.168.1.50:9104
   labels:
@@ -618,10 +635,7 @@ sudo tee /etc/prometheus/targets/tomcat/production.yml > /dev/null <<'EOF'
     env: production
     module: order-service
     node: tomcat-03
-EOF
 
-# Tomcat Staging Targets
-sudo tee /etc/prometheus/targets/tomcat/staging.yml > /dev/null <<'EOF'
 - targets:
     - 192.168.1.60:9104
   labels:
@@ -629,39 +643,27 @@ sudo tee /etc/prometheus/targets/tomcat/staging.yml > /dev/null <<'EOF'
     module: user-service
     node: tomcat-staging-01
 EOF
-```
 
-#### Step 6: Set Permissions
-
-```bash
+# Set permissions
 sudo chown -R prometheus:prometheus /etc/prometheus/
 sudo chmod 644 /etc/prometheus/prometheus.yml
 sudo chmod 644 /etc/prometheus/scrape_configs/*.yml
-sudo chmod -R 644 /etc/prometheus/targets/*/*.yml
 sudo chmod 755 /etc/prometheus/scrape_configs/
-sudo chmod -R 755 /etc/prometheus/targets/
-```
 
-#### Step 7: Validate and Reload
-
-```bash
 # Validate configuration
 promtool check config /etc/prometheus/prometheus.yml
 
 # Reload Prometheus (only needed once for initial setup)
 sudo systemctl reload prometheus
-
-# Check service status
-sudo systemctl status prometheus --no-pager
 ```
 
 ### Adding New Targets
 
-With file_sd_configs, adding new targets requires no manual reload.
+With file_sd_configs, adding new targets requires no manual reload:
 
 ```bash
-# Add a new server to node_exporter targets
-sudo tee -a /etc/prometheus/targets/node_exporter/production.yml > /dev/null <<'EOF'
+# Add a new server to node exporter targets
+sudo tee -a /etc/prometheus/scrape_configs/node_exporter_targets.yml > /dev/null <<'EOF'
 
 - targets:
     - 192.168.1.99:9100
@@ -678,42 +680,89 @@ EOF
 
 ## Comparison
 
-| Feature | Option 1 (Static) | Option 2 (file_sd_configs) |
-|---------|-------------------|---------------------------|
-| Target Auto-Reload | No | Yes |
-| Manual Reload Required | Always | Only for job config changes |
-| Directory Complexity | Simple | More directories |
-| Target Management | Edit scrape config files | Edit target files |
-| Error Handling | Fails on bad config | Skips bad target files |
-| Best For | Stable environments | Dynamic environments |
-| Refresh Interval | N/A | Configurable (default 5m) |
+| Feature | Option 1 (static_configs) | Option 2 (file_sd_configs) |
+|---------|---------------------------|---------------------------|
+| Files per exporter | 1 | 2 |
+| Target auto-reload | No | Yes |
+| Manual reload required | Always | Only for job config changes |
+| Add new server | Edit file + reload | Edit targets file only |
+| Error handling | Fails on bad config | Skips bad target entries |
+| Best for | Stable environments | Dynamic environments |
+| Refresh interval | N/A | Configurable (default 5m) |
+
+### Directory Structure Comparison
+
+**Option 1:**
+
+```
+/etc/prometheus/scrape_configs/
+├── node_exporter.yml           # Contains job config AND targets
+├── process_exporter.yml
+└── tomcat.yml
+```
+
+**Option 2:**
+
+```
+/etc/prometheus/scrape_configs/
+├── node_exporter.yml           # Contains job config only
+├── node_exporter_targets.yml   # Contains targets only (auto-reload)
+├── process_exporter.yml
+├── process_exporter_targets.yml
+├── tomcat.yml
+└── tomcat_targets.yml
+```
 
 ### When to Use Each Option
 
 **Use Option 1 when:**
 
--  infrastructure is stable
+- Your infrastructure is stable
 - Targets rarely change
-- You prefer simpler directory structure
-- You have a small number of targets
+- You prefer fewer files
+- Manual reload is acceptable
 
 **Use Option 2 when:**
 
 - Targets change frequently
 - You want zero-downtime target updates
-- You manage many targets
-- You use automation tools for target management
+- Automation tools manage your targets
 - Different teams manage different target lists
 
 ---
 
-## Verification Commands
+## Validation and Reload
+
+### Validate Configuration
+
+```bash
+promtool check config /etc/prometheus/prometheus.yml
+```
+
+### Reload Prometheus
+
+Choose one of the following methods:
+
+```bash
+# Method 1: Systemd reload
+sudo systemctl reload prometheus
+
+# Method 2: HTTP API
+curl -X POST http://localhost:9090/-/reload
+
+# Method 3: Kill signal
+sudo kill -HUP $(pgrep prometheus)
+```
 
 ### Check Service Status
 
 ```bash
 sudo systemctl status prometheus --no-pager
 ```
+
+---
+
+## Verification Commands
 
 ### List All Active Targets
 
@@ -733,7 +782,7 @@ curl -s http://localhost:9090/api/v1/targets | jq -r '.data.activeTargets | grou
 curl -s http://localhost:9090/api/v1/targets | jq -r '.data.activeTargets[] | select(.health=="down") | "\(.labels.job) - \(.labels.instance)"'
 ```
 
-### View Configuration
+### View Loaded Configuration
 
 ```bash
 curl -s http://localhost:9090/api/v1/status/config | jq -r '.data.yaml' | head -50
@@ -743,6 +792,12 @@ curl -s http://localhost:9090/api/v1/status/config | jq -r '.data.yaml' | head -
 
 ```bash
 sudo journalctl -u prometheus -n 100 --no-pager
+```
+
+### Check file_sd_configs Errors (Option 2)
+
+```bash
+sudo journalctl -u prometheus -n 100 | grep -i "file_sd\|error"
 ```
 
 ---
@@ -780,31 +835,30 @@ promtool check config /etc/prometheus/prometheus.yml
 python3 -c "import yaml; yaml.safe_load(open('/etc/prometheus/scrape_configs/node_exporter.yml'))"
 ```
 
-### Targets Not Appearing (file_sd_configs)
+### Targets Not Appearing (Option 2)
 
 ```bash
 # Check file permissions
-ls -la /etc/prometheus/targets/node_exporter/
+ls -la /etc/prometheus/scrape_configs/
 
 # Check for YAML errors in target files
-python3 -c "import yaml; yaml.safe_load(open('/etc/prometheus/targets/node_exporter/production.yml'))"
+python3 -c "import yaml; yaml.safe_load(open('/etc/prometheus/scrape_configs/node_exporter_targets.yml'))"
 
 # Check Prometheus logs for file_sd errors
 sudo journalctl -u prometheus -n 100 | grep -i "file_sd\|error"
 ```
 
-### Reload Not Working
+### file_sd_configs Error Handling
 
-```bash
-# Check if lifecycle API is enabled
-curl -s http://localhost:9090/-/healthy
+When using Option 2, if a target file has errors:
 
-# Check Prometheus startup flags
-ps aux | grep prometheus | grep -o "\-\-web.enable-lifecycle"
-
-# Enable lifecycle API if needed (add to systemd unit or startup script)
-# --web.enable-lifecycle
-```
+| Scenario | Prometheus Behavior |
+|----------|---------------------|
+| Invalid YAML syntax | Ignores the broken file, keeps last valid config |
+| Target file deleted | Removes those targets from scraping |
+| Empty target file | Treats as zero targets (no error) |
+| File permission denied | Logs error, continues with existing targets |
+| Invalid target format | Skips invalid entries, loads valid ones |
 
 ---
 
@@ -818,13 +872,17 @@ ps aux | grep prometheus | grep -o "\-\-web.enable-lifecycle"
 
 4. **Version control**: Keep configurations in a Git repository.
 
-5. **Set appropriate refresh intervals**: Balance between responsiveness and load.
+5. **Set appropriate refresh intervals**: For Option 2, balance between responsiveness and resource usage.
 
 6. **Monitor configuration health**: Watch `prometheus_config_last_reload_successful` metric.
 
-7. **Document  setup**: Maintain documentation for  configuration structure.
+7. **Document your setup**: Maintain documentation for your configuration structure.
 
 8. **Test in staging first**: Validate changes in non-production environment.
+
+9. **Use meaningful file names**: Name files clearly to indicate their purpose.
+
+10. **Separate by environment**: Consider separate target files for production and staging.
 
 ---
 
