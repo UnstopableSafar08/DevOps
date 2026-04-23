@@ -27,6 +27,21 @@ This restricts the user to only see jobs starting with `SDK-`.
 * **Permissions:** Check **Job: Read**, **Job: Build**, **Job: Cancel**, and **Job: Workspace**.
 * Click **Add**.
 
+
+---
+In Jenkins RBAC, the safest choice for job folders and nested paths is usually `^SDK-(/.*)?$` when you want to match a root item named `SDK-` and anything underneath it. For simple root-level projects only, `^SDK-.*` is broader; `SDK-.*` is the loosest and can match unwanted names like `PROD-SDK-Deploy` because it looks anywhere in the full job path. [plugins.jenkins](https://plugins.jenkins.io/role-strategy/)
+
+| Pattern | Logic | Matches (Access Granted) | Does NOT Match (Access Denied) |
+|---|---|---|---|
+| `SDK-.*` | Fuzzy/Partial: Any job name that contains `SDK-` anywhere. | `SDK-Core-Build`<br>`PROD-SDK-Deploy`<br>`SDK-Modules/Pipeline-A` | `Web-App-Build`<br>`Internal-Tool` |
+| `^SDK-.*` | Strict Start: Must start with `SDK-`. Safe for root-level jobs. | `SDK-Core-Build`<br>`SDK-API-Test`<br>`SDK-Modules/Library` | `PROD-SDK-Deploy`<br>`Legacy-SDK-Build` |
+| `^SDK-(/.*)?$` | Strict Folder: Starts with `SDK-` and explicitly handles sub-paths. | `SDK-Modules`<br>`SDK-Modules/Build`<br>`SDK-Modules/Releases/v1` | `SDK-Other-Project`<br>`PROD-SDK-Deploy` |
+
+### Which one to use
+Use `^SDK-(/.*)?$` if your Jenkins items include folders or nested job paths and you want access to stay scoped to the `SDK-` namespace. Use `^SDK-.*` only if you are matching flat, root-level job names and do not need special handling for subfolders. The plugin documentation also notes that patterns are case-sensitive and are evaluated against the job name/path. [plugins.jenkins](https://plugins.jenkins.io/role-strategy/)
+
+---
+
 #### 3. View Role (UI Visibility)
 This ensures they see the specific tab/view you created.
 * **Role to add:** `sdk_view_role`
