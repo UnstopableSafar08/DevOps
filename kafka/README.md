@@ -38,7 +38,7 @@ Apache Kafka is a distributed event streaming platform designed for high-through
 - **Availability**: High availability and fault tolerance
 - **Performance**: Optimized throughput and latency
 - **Security**: Authentication, authorization, and encryption
-- **Operability**: <a href="https://github.com/UnstopableSafar08/DevOps/blob/main/kafka/readme-old.md#monitoring-and-observability" Monitoring</a>, maintenance, and troubleshooting
+- **Operability**: [Monitoring](https://github.com/UnstopableSafar08/DevOps/blob/main/kafka/readme-old.md#monitoring-and-observability), maintenance, and troubleshooting
 
 Prior to Kafka 3.3, every cluster required a separate Apache ZooKeeper ensemble for metadata management. **KRaft** (Kafka Raft) is Kafka's built-in consensus mechanism that replaces ZooKeeper entirely. As of Kafka 4.0, ZooKeeper support is completely removed — all clusters run KRaft exclusively.
 
