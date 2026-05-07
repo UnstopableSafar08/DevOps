@@ -1,30 +1,36 @@
-# Production-Ready Apache Kafka Cluster Guide
+# Apache Kafka 4.x KRaft Cluster — Production Setup Guide
 
-A comprehensive guide for deploying, configuring, and operating Apache Kafka clusters in production environments, with focus on KRaft mode (ZooKeeper-less architecture).
-
-## Table of Contents
-
-- [Overview](#overview)
-- [Architecture Decision: KRaft vs ZooKeeper](#architecture-decision-kraft-vs-zookeeper)
-- [Infrastructure Planning](#infrastructure-planning)
-- [Hardware Requirements](#hardware-requirements)
-- [Network Architecture](#network-architecture)
-- [Installation and Setup](#installation-and-setup)
-- [Production Configuration](#production-configuration)
-- [Security Hardening](#security-hardening)
-- [Monitoring and Observability](#monitoring-and-observability)
-- [Backup and Disaster Recovery](#backup-and-disaster-recovery)
-- [Performance Tuning](#performance-tuning)
-- [Operational Procedures](#operational-procedures)
-- [Troubleshooting Guide](#troubleshooting-guide)
-- [Capacity Planning](#capacity-planning)
-- [Migration Strategies](#migration-strategies)
-- [Best Practices Checklist](#best-practices-checklist)
-- [References](#references)
+> **Environment:** 3-node combined broker+controller cluster  
+> **Kafka:** 4.1.2 | **Java:** BellSoft Liberica JDK 21 (LTS) | **OS:** Oracle Linux 9 / RHEL 9  
+> **Hardware per node:** 8 vCPU · 16 GB RAM · Dedicated data disk · Swap disabled
 
 ---
 
-## Overview
+## Table of Contents
+
+1. [Architecture Overview](#1-architecture-overview)
+2. [Prerequisites](#2-prerequisites)
+3. [Node Planning](#3-node-planning)
+4. [Install BellSoft Liberica JDK 21](#4-install-bellsoft-liberica-jdk-21)
+5. [Install Apache Kafka 4.1.2](#5-install-apache-kafka-412)
+6. [Directory Structure](#6-directory-structure)
+7. [server.properties](#7-serverproperties)
+8. [JVM Tuning](#8-jvm-tuning)
+9. [Logging — log4j2.yaml](#9-logging--log4j2yaml)
+10. [systemd Service Unit](#10-systemd-service-unit)
+11. [OS-Level Tuning](#11-os-level-tuning)
+12. [Initialize the KRaft Cluster](#12-initialize-the-kraft-cluster)
+13. [Start and Verify](#13-start-and-verify)
+14. [Producer Configuration](#14-producer-configuration)
+15. [Create Production Topics](#15-create-production-topics)
+16. [Maintenance Operations](#16-maintenance-operations)
+17. [Why Swap Must Be Disabled](#17-why-swap-must-be-disabled)
+
+---
+
+## 1. Architecture Overview
+
+### What is KRaft?
 
 Apache Kafka is a distributed event streaming platform designed for high-throughput, fault-tolerant, and scalable data pipelines. This guide covers production deployment with emphasis on:
 
@@ -34,11 +40,7 @@ Apache Kafka is a distributed event streaming platform designed for high-through
 - **Security**: Authentication, authorization, and encryption
 - **Operability**: Monitoring, maintenance, and troubleshooting
 
-### Version Information
-
-This guide is based on **Apache Kafka 3.9.0** (latest stable release) with KRaft mode. KRaft removes the dependency on ZooKeeper and provides improved performance and simplified operations.
-
----
+Prior to Kafka 3.3, every cluster required a separate Apache ZooKeeper ensemble for metadata management. **KRaft** (Kafka Raft) is Kafka's built-in consensus mechanism that replaces ZooKeeper entirely. As of Kafka 4.0, ZooKeeper support is completely removed — all clusters run KRaft exclusively.
 
 ## Architecture Decision: KRaft vs ZooKeeper
 
@@ -74,1937 +76,1152 @@ KRaft (Kafka Raft) is Kafka's built-in consensus protocol that eliminates the ne
 **Migration Path:**
 ZooKeeper-based clusters should plan migration to KRaft mode by 2025-2026, as support will be removed in Kafka 4.0.
 
----
 
-## Infrastructure Planning
-
-### Cluster Sizing
-
-#### Minimum Production Setup
-```
-Cluster Size: 5 brokers (recommended over 3)
-Rationale: 
-- Tolerates 2 node failures
-- Allows rolling updates with buffer
-- Better load distribution
-```
-
-#### Small Production (< 100 TB/day)
-- **Brokers**: 5 nodes
-- **Partitions**: Up to 10,000
-- **Throughput**: 100 MB/s aggregate
-
-#### Medium Production (100-500 TB/day)
-- **Brokers**: 7-10 nodes
-- **Partitions**: 10,000 - 50,000
-- **Throughput**: 500 MB/s aggregate
-
-#### Large Production (> 500 TB/day)
-- **Brokers**: 10+ nodes
-- **Partitions**: 50,000+
-- **Throughput**: > 500 MB/s aggregate
-
-### Replication Factor
+### Cluster Layout
 
 ```
-Critical Topics (financial, audit): RF = 3, min.insync.replicas = 2
-Standard Topics: RF = 3, min.insync.replicas = 2
-Non-critical Topics: RF = 2, min.insync.replicas = 1
+┌──────────────────────────────────────────────────────────────┐
+│                   3-Node KRaft Cluster                       │
+│                                                              │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
+│  │   Node 1     │  │   Node 2     │  │   Node 3     │      │
+│  │ 10.x.x.147   │  │ 10.x.x.148   │  │ 10.x.x.149   │      │
+│  │              │  │              │  │              │      │
+│  │  [Broker]    │  │  [Broker]    │  │  [Broker]    │      │
+│  │ [Controller] │  │ [Controller] │  │ [Controller] │      │
+│  │              │  │              │  │              │      │
+│  │  Port 9092   │  │  Port 9092   │  │  Port 9092   │      │
+│  │  (clients)   │  │  (clients)   │  │  (clients)   │      │
+│  │  Port 9093   │  │  Port 9093   │  │  Port 9093   │      │
+│  │  (internal)  │  │  (internal)  │  │  (internal)  │      │
+│  └──────────────┘  └──────────────┘  └──────────────┘      │
+│                                                              │
+│  Data disk:     /data/kafka      (message log segments)      │
+│  Metadata disk: /kafka/metadata  (KRaft consensus log)       │
+│  App logs:      /var/log/kafka                               │
+└──────────────────────────────────────────────────────────────┘
 ```
 
----
+Each node runs both `broker` and `controller` roles. With 3 controllers, the cluster tolerates **1 node failure** while maintaining quorum (2 of 3 nodes).
 
-## Hardware Requirements
+### Kafka / Java Version Matrix
 
-### Compute Resources
-
-#### Per Broker Node
-
-**Production Tier 1 (High-throughput)**
-```yaml
-CPU: 24-32 cores (2.5 GHz+)
-RAM: 64-128 GB
-Disk: 4-8 TB NVMe SSD (RAID 10)
-Network: 10 Gbps
-```
-
-**Production Tier 2 (Standard)**
-```yaml
-CPU: 16 cores (2.4 GHz+)
-RAM: 32-64 GB
-Disk: 2-4 TB SSD
-Network: 10 Gbps
-```
-
-**Production Tier 3 (Small/Development)**
-```yaml
-CPU: 8 cores
-RAM: 16-32 GB
-Disk: 1 TB SSD
-Network: 1 Gbps
-```
-
-### Storage Considerations
-
-**Disk Type Priority:**
-1. **NVMe SSD** (Best: Low latency, high IOPS)
-2. **SATA SSD** (Good: Balance of cost and performance)
-3. **HDD** (Not recommended: High latency, poor random I/O)
-
-**RAID Configuration:**
-- **RAID 10**: Recommended for production (redundancy + performance)
-- **RAID 0**: Higher risk but maximum performance
-- **No RAID**: Use Kafka replication instead (common in cloud)
-
-**Disk Layout:**
-```
-/var/kafka-logs-1    # Separate disk/volume
-/var/kafka-logs-2    # Separate disk/volume
-/var/kafka-logs-3    # Separate disk/volume
-/opt/kafka           # Application binaries
-/var/log/kafka       # Application logs
-```
-
-### Memory Allocation
-
-**JVM Heap:**
-```bash
-# For 64 GB RAM system
-KAFKA_HEAP_OPTS="-Xms16g -Xmx16g"
-
-# For 32 GB RAM system
-KAFKA_HEAP_OPTS="-Xms8g -Xmx8g"
-
-# Rule of thumb: 25-50% of system RAM, leaving rest for page cache
-```
-
-**Page Cache:**
-Kafka relies heavily on OS page cache. Leave 40-60% of RAM for page cache.
+| Kafka | Recommended Java | Notes |
+|-------|-----------------|-------|
+| 4.1.x | JDK 21 (LTS) | Production recommended |
+| 4.0.x | JDK 17 or 21 | ZooKeeper fully removed |
+| 3.7.x | JDK 17 | Last ZooKeeper-compatible release |
 
 ---
 
-## Network Architecture
+## 2. Prerequisites
 
-### Network Topology
+### System Requirements (per node)
 
-```
-                    ┌─────────────────┐
-                    │  Load Balancer  │
-                    │   (Optional)    │
-                    └────────┬────────┘
-                             │
-         ┌───────────────────┼───────────────────┐
-         │                   │                   │
-    ┌────▼────┐         ┌────▼────┐         ┌────▼────┐
-    │ Broker 1│         │ Broker 2│         │ Broker 3│
-    │  (AZ-1) │◄───────►│  (AZ-2) │◄───────►│  (AZ-3) │
-    └────┬────┘         └────┬────┘         └────┬────┘
-         │                   │                   │
-         └───────────────────┼───────────────────┘
-                             │
-                    ┌────────▼────────┐
-                    │   Monitoring    │
-                    │   & Alerting    │
-                    └─────────────────┘
-```
+| Resource | Minimum | Recommended |
+|----------|---------|-------------|
+| CPU | 4 cores | 8+ cores |
+| RAM | 8 GB | 16 GB |
+| Data disk | 100 GB | 500 GB+ SSD/NVMe |
+| Metadata disk | 20 GB | Separate SSD |
+| Swap | **Disabled** | **Disabled** |
+| OS | RHEL/OEL 8+ | RHEL/OEL 9 |
 
-### Port Configuration
+### Disable Swap (mandatory)
 
-**Required Ports:**
-```yaml
-9092: Broker listener (PLAINTEXT)
-9093: Controller listener (KRaft)
-9094: SSL/TLS listener (optional)
-9095: SASL listener (optional)
-9999: JMX monitoring port
-```
-
-**Firewall Rules:**
-```bash
-# Broker-to-broker communication
-Allow: TCP 9092, 9093 (inter-broker)
-
-# Client-to-broker communication
-Allow: TCP 9092 (from application subnets)
-
-# Monitoring
-Allow: TCP 9999 (from monitoring subnet)
-```
-
-### DNS and Hostnames
-
-**Recommendation:**
-Use fully qualified domain names (FQDN) instead of IP addresses:
-
-```properties
-# Good
-advertised.listeners=PLAINTEXT://kafka-broker-1.prod.company.com:9092
-
-# Avoid
-advertised.listeners=PLAINTEXT://10.0.1.5:9092
-```
-
-### Multi-Region Considerations
-
-**Same Region (Recommended):**
-- Latency: < 2ms
-- Suitable for synchronous replication
-
-**Multi-Region (Advanced):**
-- Use MirrorMaker 2.0 for async replication
-- Not recommended for synchronous replication (latency issues)
-
----
-
-## Installation and Setup
-
-### Prerequisites
+Swap causes multi-second JVM GC pauses. Kafka with swap is unreliable in production.
 
 ```bash
-# Install Java 11 or 17
-sudo apt-get update
-sudo apt-get install -y openjdk-17-jdk
+# Disable immediately
+swapoff -a
 
-# Verify Java installation
-java -version
+# Remove from fstab permanently
+sed -i '/swap/d' /etc/fstab
 
-# Create Kafka user
-sudo useradd -r -s /bin/bash -d /opt/kafka kafka
-
-# Create directories
-sudo mkdir -p /opt/kafka
-sudo mkdir -p /var/kafka-logs-1
-sudo mkdir -p /var/kafka-logs-2
-sudo mkdir -p /var/kafka-logs-3
-sudo mkdir -p /var/log/kafka
-
-# Set ownership
-sudo chown -R kafka:kafka /opt/kafka
-sudo chown -R kafka:kafka /var/kafka-logs-*
-sudo chown -R kafka:kafka /var/log/kafka
+# Verify
+free -h
+# Swap: 0B  0B  0B
 ```
 
-### Download and Install Kafka
+### Required Packages
 
 ```bash
-# Download Kafka
-cd /tmp
-wget https://downloads.apache.org/kafka/3.9.0/kafka_2.13-3.9.0.tgz
-
-# Extract
-tar -xzf kafka_2.13-3.9.0.tgz
-sudo mv kafka_2.13-3.9.0/* /opt/kafka/
-
-# Create symbolic link
-sudo ln -s /opt/kafka /opt/kafka-current
+dnf install -y curl wget tar gzip util-linux-user
 ```
 
-### System Configuration
+### Firewall Rules (all 3 nodes)
 
-#### File Descriptor Limits
-
-Edit `/etc/security/limits.conf`:
 ```bash
-kafka soft nofile 100000
-kafka hard nofile 100000
-kafka soft nproc 32000
-kafka hard nproc 32000
+firewall-cmd --permanent --add-port=9092/tcp   # broker — clients
+firewall-cmd --permanent --add-port=9093/tcp   # controller — internal only
+firewall-cmd --reload
+firewall-cmd --list-ports
 ```
 
-#### Kernel Parameters
+> **Security note:** Port 9093 (controller) should be firewalled from external access. Only inter-node traffic needs port 9093.
 
-Edit `/etc/sysctl.conf`:
+### SELinux — Label Kafka Directories
+
 ```bash
-# Swap settings
-vm.swappiness=1
-vm.dirty_ratio=80
-vm.dirty_background_ratio=5
-
-# Network settings
-net.core.wmem_default=131072
-net.core.rmem_default=131072
-net.core.wmem_max=2097152
-net.core.rmem_max=2097152
-net.ipv4.tcp_wmem=4096 65536 2048000
-net.ipv4.tcp_rmem=4096 87380 2048000
-net.ipv4.tcp_window_scaling=1
-net.ipv4.tcp_max_syn_backlog=8192
-
-# Connection tracking
-net.netfilter.nf_conntrack_max=1048576
-net.core.somaxconn=1024
+semanage fcontext -a -t var_log_t "/var/log/kafka(/.*)?"
+semanage fcontext -a -t var_t "/data/kafka(/.*)?"
+semanage fcontext -a -t var_t "/kafka(/.*)?"
+restorecon -Rv /var/log/kafka /data/kafka /kafka
 ```
 
-Apply settings:
-```bash
-sudo sysctl -p
-```
-
-#### Disable Swap
+### Create Kafka System User
 
 ```bash
-# Temporary
-sudo swapoff -a
-
-# Permanent - comment out swap in /etc/fstab
-sudo sed -i '/ swap / s/^/#/' /etc/fstab
+useradd --system --no-create-home --shell /sbin/nologin kafka
 ```
 
 ---
 
-## Production Configuration
+## 3. Node Planning
 
-### KRaft Mode Configuration
+Set these values on each server before starting. Only `NODE_ID` and `ADVERTISED_IP` differ per node.
 
-#### Server Properties - Broker 1
+| Node | Hostname | IP | NODE_ID |
+|------|----------|----|---------|
+| Node 1 | kafka-node1 | 10.x.x.147 | 1 |
+| Node 2 | kafka-node2 | 10.x.x.148 | 2 |
+| Node 3 | kafka-node3 | 10.x.x.149 | 3 |
 
-Create `/opt/kafka/config/server.properties`:
+### /etc/hosts — all nodes
 
-```properties
-############################# Server Basics #############################
-
-# Unique node ID (use 1, 2, 3, 4, 5 for 5-node cluster)
-node.id=1
-
-# Process roles: combined broker and controller
-process.roles=broker,controller
-
-############################# Listeners #############################
-
-# Listener configuration
-listeners=PLAINTEXT://:9092,CONTROLLER://:9093
-advertised.listeners=PLAINTEXT://kafka-broker-1.prod.company.com:9092
-
-# Controller listener name
-controller.listener.names=CONTROLLER
-
-# Inter-broker listener
-inter.broker.listener.name=PLAINTEXT
-
-############################# Controller Quorum #############################
-
-# Controller quorum voters (all nodes)
-controller.quorum.voters=1@kafka-broker-1.prod.company.com:9093,2@kafka-broker-2.prod.company.com:9093,3@kafka-broker-3.prod.company.com:9093,4@kafka-broker-4.prod.company.com:9093,5@kafka-broker-5.prod.company.com:9093
-
-############################# Log Directories #############################
-
-# Data directories (use multiple for better I/O distribution)
-log.dirs=/var/kafka-logs-1,/var/kafka-logs-2,/var/kafka-logs-3
-
-############################# Socket Server Settings #############################
-
-# Number of threads handling network requests
-num.network.threads=8
-
-# Number of threads doing disk I/O
-num.io.threads=16
-
-# Send buffer size
-socket.send.buffer.bytes=102400
-
-# Receive buffer size
-socket.receive.buffer.bytes=102400
-
-# Maximum request size
-socket.request.max.bytes=104857600
-
-############################# Log Basics #############################
-
-# Default number of partitions
-num.partitions=6
-
-# Number of threads for log recovery and flushing
-num.recovery.threads.per.data.dir=2
-
-############################# Replication Settings #############################
-
-# Default replication factor
-default.replication.factor=3
-
-# Minimum in-sync replicas
-min.insync.replicas=2
-
-# Disable unclean leader election (critical for data integrity)
-unclean.leader.election.enable=false
-
-# Number of replica fetcher threads
-num.replica.fetchers=4
-
-# Replica lag time
-replica.lag.time.max.ms=30000
-
-# Replica fetch max bytes
-replica.fetch.max.bytes=1048576
-
-############################# Internal Topics #############################
-
-# Offsets topic configuration
-offsets.topic.replication.factor=3
-offsets.topic.num.partitions=50
-
-# Transaction state log
-transaction.state.log.replication.factor=3
-transaction.state.log.min.isr=2
-transaction.state.log.num.partitions=50
-
-############################# Log Retention #############################
-
-# Retention by time (7 days)
-log.retention.hours=168
-
-# Retention by size (optional - per partition)
-# log.retention.bytes=1073741824
-
-# Segment file size (1 GB)
-log.segment.bytes=1073741824
-
-# Check interval for log retention
-log.retention.check.interval.ms=300000
-
-# Minimum age before segment deletion
-log.segment.delete.delay.ms=60000
-
-############################# Log Compaction #############################
-
-# Enable log cleaner
-log.cleaner.enable=true
-
-# Number of log cleaner threads
-log.cleaner.threads=2
-
-# Log cleaner I/O buffer size
-log.cleaner.io.buffer.size=524288
-
-# Log cleaner dedupe buffer size
-log.cleaner.dedupe.buffer.size=134217728
-
-############################# Topic Settings #############################
-
-# Disable auto topic creation
-auto.create.topics.enable=false
-
-# Compression type
-compression.type=producer
-
-# Maximum message size
-message.max.bytes=1048576
-
-############################# Controller Settings #############################
-
-# Controller socket timeout
-controller.socket.timeout.ms=30000
-
-# Controlled shutdown
-controlled.shutdown.enable=true
-controlled.shutdown.max.retries=3
-
-############################# Background Threads #############################
-
-# Number of background threads
-background.threads=10
-
-############################# Metrics #############################
-
-# Metrics reporters
-metric.reporters=
-
-# Metrics recording level
-metrics.recording.level=INFO
-
-############################# Quotas #############################
-
-# Producer quota (bytes/sec per client)
-# quota.producer.default=10485760
-
-# Consumer quota (bytes/sec per client)
-# quota.consumer.default=10485760
-
-############################# Group Coordinator Settings #############################
-
-# Group coordinator settings
-group.initial.rebalance.delay.ms=3000
-group.max.session.timeout.ms=1800000
-group.min.session.timeout.ms=6000
+```bash
+cat >> /etc/hosts <<EOF
+10.x.x.147  kafka-node1
+10.x.x.148  kafka-node2
+10.x.x.149  kafka-node3
+EOF
 ```
 
-**Important:** 
-- Change `node.id` to 2, 3, 4, 5 for other brokers
-- Update `advertised.listeners` with correct hostname for each broker
+---
 
-### JVM Configuration
+## 4. Install BellSoft Liberica JDK 21
 
-Create `/opt/kafka/bin/kafka-server-start-production.sh`:
+BellSoft Liberica is a certified, production-grade OpenJDK distribution. JDK 21 is the current LTS release with best compatibility for Kafka 4.x.
 
 ```bash
 #!/bin/bash
+set -euo pipefail
 
-# JVM Heap Settings (adjust based on available RAM)
-export KAFKA_HEAP_OPTS="-Xms16g -Xmx16g"
+JDK_URL="https://download.bell-sw.com/java/21.0.11+11/bellsoft-jdk21.0.11+11-linux-amd64.tar.gz"
+TARBALL="/tmp/bellsoft-jdk21.tar.gz"
+INSTALL_BASE="/usr/lib/jvm"
 
-# JVM Performance Options (G1GC recommended)
-export KAFKA_JVM_PERFORMANCE_OPTS="-XX:+UseG1GC \
-  -XX:MaxGCPauseMillis=20 \
-  -XX:InitiatingHeapOccupancyPercent=35 \
-  -XX:G1HeapRegionSize=16M \
-  -XX:MinMetaspaceSize=96m \
-  -XX:MaxMetaspaceSize=512m \
-  -XX:+ParallelRefProcEnabled \
-  -XX:+DisableExplicitGC"
+echo "[1/5] Downloading BellSoft Liberica JDK 21..."
+curl -fL --progress-bar -o "$TARBALL" "$JDK_URL"
 
-# GC Logging
-export KAFKA_GC_LOG_OPTS="-Xlog:gc*:file=/var/log/kafka/gc.log:time,tags:filecount=10,filesize=100M"
+echo "[2/5] Extracting to ${INSTALL_BASE}..."
+mkdir -p "$INSTALL_BASE"
+tar -xzf "$TARBALL" -C "$INSTALL_BASE"
 
-# JMX Monitoring
-export KAFKA_JMX_OPTS="-Dcom.sun.management.jmxremote \
-  -Dcom.sun.management.jmxremote.authenticate=false \
-  -Dcom.sun.management.jmxremote.ssl=false \
-  -Dcom.sun.management.jmxremote.port=9999 \
-  -Djava.rmi.server.hostname=kafka-broker-1.prod.company.com"
+EXTRACTED=$(tar -tzf "$TARBALL" | head -1 | cut -d/ -f1)
+JAVA_HOME_PATH="${INSTALL_BASE}/${EXTRACTED}"
 
-# Start Kafka
-exec /opt/kafka/bin/kafka-server-start.sh /opt/kafka/config/server.properties
+echo "[3/5] Creating symlink /usr/jdk21 → ${JAVA_HOME_PATH}"
+ln -sfn "$JAVA_HOME_PATH" /usr/jdk21
+
+echo "[4/5] Registering with alternatives..."
+update-alternatives --install /usr/bin/java  java  "${JAVA_HOME_PATH}/bin/java"  100
+update-alternatives --install /usr/bin/javac javac "${JAVA_HOME_PATH}/bin/javac" 100
+update-alternatives --set java  "${JAVA_HOME_PATH}/bin/java"
+update-alternatives --set javac "${JAVA_HOME_PATH}/bin/javac"
+
+echo "[5/5] Writing /etc/profile.d/java.sh..."
+cat > /etc/profile.d/java.sh <<JEOF
+export JAVA_HOME=/usr/jdk21
+export PATH=\$JAVA_HOME/bin:\$PATH
+JEOF
+
+source /etc/profile.d/java.sh
+rm -f "$TARBALL"
+
+echo "--- JDK install complete ---"
+java -version
 ```
 
-Make executable:
+### Verify
+
 ```bash
-chmod +x /opt/kafka/bin/kafka-server-start-production.sh
+source /etc/profile.d/java.sh
+java -version
+# openjdk version "21.0.11" 2025-04-15 LTS
+# OpenJDK Runtime Environment BellSoft Liberica (build 21.0.11+11-LTS)
 ```
 
-### Systemd Service
+> **Note:** `/usr/jdk21` should be readable by the `kafka` user. Verify:
+> ```bash
+> ls -la /usr/jdk21/bin/java
+> sudo -u kafka /usr/jdk21/bin/java -version
+> ```
 
-Create `/etc/systemd/system/kafka.service`:
+---
 
-```ini
+## 5. Install Apache Kafka 4.1.2
+
+```bash
+#!/bin/bash
+set -euo pipefail
+
+KAFKA_VERSION="4.1.2"
+SCALA_VERSION="2.13"
+KAFKA_URL="https://downloads.apache.org/kafka/${KAFKA_VERSION}/kafka_${SCALA_VERSION}-${KAFKA_VERSION}.tgz"
+TARBALL="/tmp/kafka_${SCALA_VERSION}-${KAFKA_VERSION}.tgz"
+INSTALL_DIR="/kafka"
+
+echo "Downloading Kafka ${KAFKA_VERSION}..."
+wget -q --show-progress -O "$TARBALL" "$KAFKA_URL"
+
+echo "Extracting to ${INSTALL_DIR}..."
+mkdir -p "$INSTALL_DIR"
+tar -xzf "$TARBALL" -C "$INSTALL_DIR"
+ln -sfn "${INSTALL_DIR}/kafka_${SCALA_VERSION}-${KAFKA_VERSION}" "${INSTALL_DIR}/kafka"
+
+echo "Adding Kafka to PATH..."
+echo "export PATH=${INSTALL_DIR}/kafka/bin:\$PATH" > /etc/profile.d/kafka.sh
+source /etc/profile.d/kafka.sh
+
+rm -f "$TARBALL"
+echo "Kafka ${KAFKA_VERSION} installed at ${INSTALL_DIR}/kafka"
+```
+
+> **Note:** Remove or rename the default sample configs to prevent accidental use:
+> ```bash
+> mv /kafka/kafka/config/broker.properties \
+>    /kafka/kafka/config/broker.properties.DEFAULT_UNUSED
+> mv /kafka/kafka/config/controller.properties \
+>    /kafka/kafka/config/controller.properties.DEFAULT_UNUSED
+> ```
+> The default `broker.properties` has `log.dirs=/tmp/...` and `replication.factor=1` — dangerous if accidentally started.
+
+---
+
+## 6. Directory Structure
+
+Separate data and metadata onto different disks to eliminate I/O contention.
+
+```
+/
+├── data/
+│   └── kafka/               ← message log segments (dedicated data disk)
+├── kafka/
+│   ├── kafka/               ← Kafka installation
+│   │   ├── bin/
+│   │   └── config/
+│   │       ├── server.properties
+│   │       ├── log4j2.yaml
+│   │       └── jvm.options
+│   └── metadata/            ← KRaft metadata log (separate from data)
+└── var/log/kafka/           ← all application logs
+    ├── server.log
+    ├── controller.log
+    ├── state-change.log
+    ├── kafka-request.log
+    ├── log-cleaner.log
+    ├── kafka-authorizer.log
+    └── kafka-gc.log
+```
+
+### Create Directories
+
+```bash
+mkdir -p /data/kafka
+mkdir -p /kafka/metadata
+mkdir -p /var/log/kafka
+mkdir -p /etc/kafka
+
+# Ownership
+chown -R kafka:kafka /data/kafka
+chown -R kafka:kafka /kafka/metadata
+chown -R kafka:kafka /var/log/kafka
+chown -R kafka:kafka /kafka/kafka
+```
+
+### fstab Mount Options (if separate disks)
+
+```bash
+# /etc/fstab — XFS with performance flags for Kafka workloads
+/dev/sdX  /data   xfs  defaults,noatime,nodiratime,allocsize=64m  0 0
+/dev/sdY  /kafka  xfs  defaults,noatime,nodiratime                 0 0
+```
+
+---
+
+## 7. server.properties
+
+Create `/kafka/kafka/config/server.properties` on each node. Only `node.id` and `advertised.listeners` change per node.
+
+```properties
+########################
+# KRaft Cluster Identity
+########################
+
+# Roles this node plays
+# broker = stores and serves messages
+# controller = participates in cluster elections
+process.roles=broker,controller
+
+# Unique node ID — must differ on every node (1, 2, or 3)
+node.id=1
+
+# All 3 controller voters — identical on every node
+controller.quorum.voters=1@10.x.x.147:9093,2@10.x.x.148:9093,3@10.x.x.149:9093
+
+########################
+# Listeners
+########################
+
+# Listen on all interfaces — clients on 9092, controllers on 9093
+listeners=PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+
+# Address advertised to clients — set to THIS node's IP
+advertised.listeners=PLAINTEXT://10.x.x.147:9092
+
+inter.broker.listener.name=PLAINTEXT
+controller.listener.names=CONTROLLER
+listener.security.protocol.map=PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+
+########################
+# Storage
+########################
+
+# Message log segments — dedicated data disk
+log.dirs=/data/kafka
+
+# KRaft metadata log — separate from message data
+metadata.log.dir=/kafka/metadata
+
+########################
+# Log Retention
+########################
+
+# Keep messages for 7 days
+log.retention.hours=168
+
+# No size-based cap globally (-1 = disabled)
+# Set per-topic if needed with --config retention.bytes=...
+log.retention.bytes=-1
+
+# 1 GB segment files — faster cleanup and crash recovery
+log.segment.bytes=1073741824
+
+# Check retention eligibility every 5 minutes
+log.retention.check.interval.ms=300000
+
+# Timestamps use producer-side time
+log.message.timestamp.type=CreateTime
+
+# Cleanup policy — delete old segments (not compaction)
+log.cleanup.policy=delete
+
+########################
+# Flush Policy
+########################
+
+# Do NOT force fsync on every N messages or every interval.
+# Rely on replication (min.insync.replicas=2 + acks=all) for durability.
+# Forced fsync kills throughput and provides false safety.
+# Long value = effectively disabled.
+log.flush.interval.messages=9223372036854775807
+log.flush.interval.ms=9223372036854775807
+
+########################
+# Replication & Durability
+########################
+
+# 3 copies of every topic by default — survives 1 node failure
+default.replication.factor=3
+
+# Producer must get confirmation from 2 of 3 replicas
+# Use with acks=all on producers — guarantees no data loss on leader failure
+min.insync.replicas=2
+
+# Internal topics — also 3x replicated
+offsets.topic.replication.factor=3
+transaction.state.log.replication.factor=3
+transaction.state.log.min.isr=2
+
+# Never allow an out-of-sync replica to become leader
+# An out-of-sync leader = permanent silent data loss
+unclean.leader.election.enable=false
+
+# Rebalance partition leadership periodically for even load distribution
+auto.leader.rebalance.enable=true
+leader.imbalance.check.interval.seconds=300
+
+# No accidental topic creation from application typos
+auto.create.topics.enable=false
+
+# Allow topic deletion via admin commands
+delete.topic.enable=true
+
+########################
+# Message Size
+########################
+
+# Max message size: 10 MB (broker, replica fetch, and consumer fetch aligned)
+message.max.bytes=10485760
+replica.fetch.max.bytes=10485760
+fetch.max.bytes=10485760
+
+# Respect producer's compression — no re-compression overhead at broker
+compression.type=producer
+
+########################
+# Network & I/O Threads
+########################
+# Rule: network.threads = CPU cores, io.threads = 2x CPU cores
+
+num.network.threads=8
+num.io.threads=16
+num.recovery.threads.per.data.dir=4
+background.threads=10
+
+# Socket buffers — 1 MB to match kernel sysctl rmem_max/wmem_max
+socket.send.buffer.bytes=1048576
+socket.receive.buffer.bytes=1048576
+socket.request.max.bytes=104857600
+
+# Request queue depth — 1000 handles burst without OOM risk
+queued.max.requests=1000
+
+########################
+# Connections
+########################
+
+max.connections.per.ip=500
+connections.max.idle.ms=540000
+request.timeout.ms=30000
+
+########################
+# Partition Defaults
+########################
+
+# 6 partitions default = 2 per node on a 3-broker cluster
+num.partitions=6
+
+########################
+# Replication Tuning
+########################
+
+# Mark replica out-of-sync after 30 seconds without fetch
+replica.lag.time.max.ms=30000
+replica.socket.timeout.ms=30000
+
+# Replica fetch buffer — 1 MB, matches socket buffers
+replica.socket.receive.buffer.bytes=1048576
+replica.fetch.wait.max.ms=500
+
+# 4 parallel replication threads per broker
+num.replica.fetchers=4
+
+########################
+# Graceful Shutdown
+########################
+
+controlled.shutdown.enable=true
+controlled.shutdown.max.retries=3
+controlled.shutdown.retry.backoff.ms=5000
+
+########################
+# Consumer Group Coordinator
+########################
+
+# Wait 3s after first consumer joins before assigning partitions
+# Prevents repeated rebalancing during rolling deployments
+group.initial.rebalance.delay.ms=3000
+
+# Keep consumer offset bookmarks for 7 days (matches log retention)
+offsets.retention.minutes=10080
+
+########################
+# Transactions
+########################
+
+transaction.max.timeout.ms=900000
+
+########################
+# Protocol Version
+########################
+
+inter.broker.protocol.version=4.1
+```
+
+### Per-node changes
+
+**Node 2:**
+```bash
+sed -i 's/^node.id=1/node.id=2/' /kafka/kafka/config/server.properties
+sed -i 's/advertised.listeners=PLAINTEXT:\/\/10.x.x.147/advertised.listeners=PLAINTEXT:\/\/10.x.x.148/' \
+    /kafka/kafka/config/server.properties
+```
+
+**Node 3:**
+```bash
+sed -i 's/^node.id=1/node.id=3/' /kafka/kafka/config/server.properties
+sed -i 's/advertised.listeners=PLAINTEXT:\/\/10.x.x.147/advertised.listeners=PLAINTEXT:\/\/10.x.x.149/' \
+    /kafka/kafka/config/server.properties
+```
+
+---
+
+## 8. JVM Tuning
+
+Create `/kafka/kafka/config/jvm.options`:
+
+```bash
+cat > /kafka/kafka/config/jvm.options <<'EOF'
+KAFKA_HEAP_OPTS=-Xms6g -Xmx6g
+KAFKA_JVM_PERFORMANCE_OPTS=-server -XX:+UseG1GC -XX:MaxGCPauseMillis=20 -XX:InitiatingHeapOccupancyPercent=35 -XX:G1HeapRegionSize=16m -XX:+ExplicitGCInvokesConcurrent -XX:+ParallelRefProcEnabled -XX:+UseCompressedOops -XX:+OptimizeStringConcat -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/var/log/kafka/heap-dump.hprof
+KAFKA_GC_LOG_OPTS=-Xlog:gc*:file=/var/log/kafka/kafka-gc.log:time,uptime:filecount=5,filesize=100m
+EOF
+
+```
+
+### RAM Allocation Rationale
+
+| Allocation | Size | Purpose |
+|-----------|------|---------|
+| JVM heap | 6 GB | Kafka broker objects, metadata cache |
+| OS page cache | ~8 GB | Partition segment reads — Kafka's hot path |
+| OS + other | ~2 GB | Kernel, system processes |
+
+> **Why not more heap?** Page cache is faster than JVM heap for Kafka reads. More heap = larger GC pauses + less page cache = slower reads. 6g on 16g is the right balance.
+
+### Verify heap after restart
+
+```bash
+ps aux | grep kafka | grep -o '\-Xm[sx][^ ]*'
+# -Xms6g
+# -Xmx6g
+```
+
+---
+
+## 9. Logging — log4j2.yaml
+
+Kafka 4.x uses Log4j2 natively. Create `/kafka/kafka/config/log4j2.yaml`:
+
+```yaml
+Configuration:
+  Properties:
+    Property:
+      - name: "kafka.logs.dir"
+        value: "."
+      - name: "logPattern"
+        value: "[%d] %p %m (%c)%n"
+
+  Appenders:
+    Console:
+      name: STDOUT
+      PatternLayout:
+        pattern: "${logPattern}"
+
+    RollingFile:
+      - name: KafkaAppender
+        fileName: "${sys:kafka.logs.dir}/server.log"
+        filePattern: "${sys:kafka.logs.dir}/server.log.%d{yyyy-MM-dd-HH}"
+        PatternLayout:
+          pattern: "${logPattern}"
+        TimeBasedTriggeringPolicy:
+          modulate: true
+          interval: 1
+        DefaultRolloverStrategy:
+          max: 30
+
+      - name: StateChangeAppender
+        fileName: "${sys:kafka.logs.dir}/state-change.log"
+        filePattern: "${sys:kafka.logs.dir}/state-change.log.%d{yyyy-MM-dd-HH}"
+        PatternLayout:
+          pattern: "${logPattern}"
+        TimeBasedTriggeringPolicy:
+          modulate: true
+          interval: 1
+        DefaultRolloverStrategy:
+          max: 30
+
+      - name: RequestAppender
+        fileName: "${sys:kafka.logs.dir}/kafka-request.log"
+        filePattern: "${sys:kafka.logs.dir}/kafka-request.log.%d{yyyy-MM-dd-HH}"
+        PatternLayout:
+          pattern: "${logPattern}"
+        TimeBasedTriggeringPolicy:
+          modulate: true
+          interval: 1
+        DefaultRolloverStrategy:
+          max: 30
+
+      - name: CleanerAppender
+        fileName: "${sys:kafka.logs.dir}/log-cleaner.log"
+        filePattern: "${sys:kafka.logs.dir}/log-cleaner.log.%d{yyyy-MM-dd-HH}"
+        PatternLayout:
+          pattern: "${logPattern}"
+        TimeBasedTriggeringPolicy:
+          modulate: true
+          interval: 1
+        DefaultRolloverStrategy:
+          max: 30
+
+      - name: ControllerAppender
+        fileName: "${sys:kafka.logs.dir}/controller.log"
+        filePattern: "${sys:kafka.logs.dir}/controller.log.%d{yyyy-MM-dd-HH}"
+        PatternLayout:
+          pattern: "${logPattern}"
+        TimeBasedTriggeringPolicy:
+          modulate: true
+          interval: 1
+        DefaultRolloverStrategy:
+          max: 30
+
+      - name: AuthorizerAppender
+        fileName: "${sys:kafka.logs.dir}/kafka-authorizer.log"
+        filePattern: "${sys:kafka.logs.dir}/kafka-authorizer.log.%d{yyyy-MM-dd-HH}"
+        PatternLayout:
+          pattern: "${logPattern}"
+        TimeBasedTriggeringPolicy:
+          modulate: true
+          interval: 1
+        DefaultRolloverStrategy:
+          max: 30
+
+  Loggers:
+    Root:
+      level: INFO
+      AppenderRef:
+        - ref: STDOUT
+        - ref: KafkaAppender
+
+    Logger:
+      - name: kafka
+        level: INFO
+
+      - name: org.apache.kafka
+        level: INFO
+
+      # Request log — WARN in production (very high volume at INFO)
+      # Temporarily set to INFO for debugging, revert immediately after
+      - name: kafka.request.logger
+        level: WARN
+        additivity: false
+        AppenderRef:
+          ref: RequestAppender
+
+      - name: kafka.network.RequestChannel$
+        level: WARN
+        additivity: false
+        AppenderRef:
+          ref: RequestAppender
+
+      - name: org.apache.kafka.controller
+        level: INFO
+        additivity: false
+        AppenderRef:
+          ref: ControllerAppender
+
+      - name: org.apache.kafka.storage.internals.log.LogCleaner
+        level: INFO
+        additivity: false
+        AppenderRef:
+          ref: CleanerAppender
+
+      - name: org.apache.kafka.storage.internals.log.LogCleaner$CleanerThread
+        level: INFO
+        additivity: false
+        AppenderRef:
+          ref: CleanerAppender
+
+      - name: org.apache.kafka.storage.internals.log.Cleaner
+        level: INFO
+        additivity: false
+        AppenderRef:
+          ref: CleanerAppender
+
+      - name: state.change.logger
+        level: INFO
+        additivity: false
+        AppenderRef:
+          ref: StateChangeAppender
+
+      - name: kafka.authorizer.logger
+        level: INFO
+        additivity: false
+        AppenderRef:
+          ref: AuthorizerAppender
+```
+
+### logrotate — OS-level backup
+
+```bash
+cat > /etc/logrotate.d/kafka <<'EOF'
+/var/log/kafka/*.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    dateext
+    dateformat -%Y%m%d
+    sharedscripts
+    postrotate
+        # Log4j2 handles its own rolling — this covers any files Log4j2 misses
+        /bin/kill -HUP $(cat /var/run/kafka/kafka.pid 2>/dev/null) 2>/dev/null || true
+    endscript
+}
+EOF
+```
+
+> **Note:** Avoid `copytruncate` with Kafka. It can lose log lines written between the copy and truncate operations. Log4j2's own rolling (configured above) is the primary rotation mechanism.
+
+---
+
+## 10. systemd Service Unit
+
+```bash
+cat > /etc/systemd/system/kafka.service <<'EOF'
 [Unit]
-Description=Apache Kafka Server (KRaft Mode)
-Documentation=https://kafka.apache.org/documentation/
-After=network.target
+Description=Apache Kafka KRaft Broker
+Documentation=https://kafka.apache.org
+Requires=network-online.target
+After=network-online.target
 
 [Service]
+# Protect Kafka from OOM killer — lower score = less likely to be killed
+# Critical on hosts with swap disabled — OOM killer is the only safety net
+OOMScoreAdjust=-500
+
 Type=simple
 User=kafka
 Group=kafka
-Environment="LOG_DIR=/var/log/kafka"
-ExecStart=/opt/kafka/bin/kafka-server-start-production.sh
-ExecStop=/opt/kafka/bin/kafka-server-stop.sh
-Restart=on-failure
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=kafka
 
-# Process limits
-LimitNOFILE=100000
-LimitNPROC=32000
+Environment="JAVA_HOME=/usr/jdk21"
+Environment="LOG_DIR=/var/log/kafka"
+Environment="KAFKA_LOG4J_OPTS=-Dlog4j2.configurationFile=file:/kafka/kafka/config/log4j2.yaml"
+
+# JVM heap and GC options loaded from file
+EnvironmentFile=/kafka/kafka/config/jvm.options
+
+ExecStart=/kafka/kafka/bin/kafka-server-start.sh \
+    /kafka/kafka/config/server.properties
+
+ExecStop=/kafka/kafka/bin/kafka-server-stop.sh
+
+Restart=on-failure
+RestartSec=10s
+
+# Match limits set in /etc/security/limits.d/kafka.conf
+LimitNOFILE=800000
+LimitNPROC=65536
+
+# Allow 2 minutes for startup (large partition counts take time to recover)
+TimeoutStartSec=120
+# Allow 2 minutes for graceful shutdown
+TimeoutStopSec=120
 
 [Install]
 WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
 ```
 
-Enable and start:
+### Verify OOMScoreAdjust is applied after start
+
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable kafka
-sudo systemctl start kafka
-sudo systemctl status kafka
+systemctl start kafka
+cat /proc/$(pgrep -f kafka.Kafka)/oom_score_adj
+# Expected: -500
 ```
 
-### Cluster Initialization
+---
 
-**Step 1: Generate Cluster ID (run once on any node)**
+## 11. OS-Level Tuning
+
+### Kernel Parameters
 
 ```bash
-CLUSTER_ID=$(kafka-storage.sh random-uuid)
-echo $CLUSTER_ID
-# Save this UUID - you'll need it on all nodes
-# Example: 4L6g3nShT-eMCtK-X86ZQw
+cat > /etc/sysctl.d/99-kafka.conf <<'EOF'
+# Minimize swap usage — Kafka GC pauses spike when pages are swapped
+# With swap disabled this is a safety setting for any future swap device
+vm.swappiness=1
+
+# Allow dirty page ratio to reach 80% before forcing writeback
+# Kafka writes sequentially — OS buffering is beneficial
+vm.dirty_ratio=80
+
+# Start background writeback at 5% dirty pages — smooth continuous flushing
+vm.dirty_background_ratio=5
+
+# Socket buffer sizes — 128 MB maximum
+# Must be >= socket.send.buffer.bytes and socket.receive.buffer.bytes in server.properties
+net.core.rmem_max=134217728
+net.core.wmem_max=134217728
+net.core.rmem_default=8388608
+net.core.wmem_default=8388608
+
+# TCP buffer sizes: min / default / max
+net.ipv4.tcp_rmem=4096 87380 134217728
+net.ipv4.tcp_wmem=4096 65536 134217728
+
+# Queue more packets before dropping — absorbs burst traffic
+net.core.netdev_max_backlog=5000
+
+# TCP window scaling for high-bandwidth inter-broker replication
+net.ipv4.tcp_window_scaling=1
+
+# System-wide file descriptor limit
+fs.file-max=1000000
+EOF
+
+sysctl -p /etc/sysctl.d/99-kafka.conf
 ```
 
-**Step 2: Format storage on each broker**
+### File Descriptor Limits
+
+Kafka opens one file descriptor per partition segment. A 1000-partition cluster with multiple segments per partition requires hundreds of thousands of file descriptors.
 
 ```bash
-# On each broker (use the SAME cluster ID from step 1)
-kafka-storage.sh format \
-  -t 4L6g3nShT-eMCtK-X86ZQw \
-  -c /opt/kafka/config/server.properties
+cat > /etc/security/limits.d/kafka.conf <<'EOF'
+kafka soft nofile 800000
+kafka hard nofile 800000
+kafka soft nproc  65536
+kafka hard nproc  65536
+EOF
 ```
 
-**Step 3: Start all brokers**
+### Disk Scheduler
 
 ```bash
-# On each broker
-sudo systemctl start kafka
+# SSD/NVMe — no scheduling overhead
+echo none > /sys/block/sda/queue/scheduler
+
+# HDD — deadline prevents starvation
+# echo mq-deadline > /sys/block/sda/queue/scheduler
+
+# Sequential read-ahead: 4 MB — helps Kafka's sequential segment reads
+echo 4096 > /sys/block/sda/queue/read_ahead_kb
 ```
 
-**Step 4: Verify cluster formation**
+**Persist via udev (survives reboot):**
 
 ```bash
-# Check controller quorum status
-kafka-metadata-quorum.sh \
-  --bootstrap-server kafka-broker-1.prod.company.com:9092 \
+cat > /etc/udev/rules.d/60-kafka-disk.rules <<'EOF'
+ACTION=="add|change", KERNEL=="sda", ATTR{queue/rotational}=="0", ATTR{queue/scheduler}="none"
+ACTION=="add|change", KERNEL=="sdb", ATTR{queue/rotational}=="0", ATTR{queue/scheduler}="none"
+EOF
+
+udevadm control --reload-rules
+```
+
+---
+
+## 12. Initialize the KRaft Cluster
+
+> **Critical:** The cluster UUID must be identical on all 3 nodes. Generate once, copy everywhere.
+
+### Step 1 — Generate UUID (Node 1 only)
+
+```bash
+CLUSTER_ID=$(/kafka/kafka/bin/kafka-storage.sh random-uuid)
+echo "Cluster UUID: $CLUSTER_ID"
+# Save this — you need it on Node 2 and Node 3
+```
+
+### Step 2 — Format storage (all 3 nodes)
+
+```bash
+# Replace with UUID from Step 1
+CLUSTER_ID="<paste-uuid-here>"
+
+/kafka/kafka/bin/kafka-storage.sh format \
+  --cluster-id "$CLUSTER_ID" \
+  --config /kafka/kafka/config/server.properties
+
+# Expected output:
+# Formatting /data/kafka with metadata.version X.X-IVX
+# Formatting /kafka/metadata with metadata.version X.X-IVX
+```
+
+---
+
+## 13. Start and Verify
+
+### Start on all 3 nodes
+
+```bash
+systemctl enable --now kafka
+systemctl status kafka
+```
+
+### Verify quorum health
+
+```bash
+/kafka/kafka/bin/kafka-metadata-quorum.sh \
+  --bootstrap-server 10.x.x.147:9092 \
   describe --status
+```
 
-# List brokers
-kafka-broker-api-versions.sh \
-  --bootstrap-server kafka-broker-1.prod.company.com:9092 | grep id
+**Expected healthy output:**
+
+```
+ClusterId:              <your-cluster-uuid>
+LeaderId:               2
+LeaderEpoch:            4
+HighWatermark:          898126
+MaxFollowerLag:         0
+MaxFollowerLagTimeMs:   360
+CurrentVoters:          [{"id": 1, ...}, {"id": 2, ...}, {"id": 3, ...}]
+CurrentObservers:       []
+```
+
+| Field | Healthy value |
+|-------|--------------|
+| MaxFollowerLag | 0 |
+| MaxFollowerLagTimeMs | < 500 |
+| CurrentVoters | all 3 nodes |
+| CurrentObservers | empty |
+
+### Verify all brokers registered
+
+```bash
+/kafka/kafka/bin/kafka-broker-api-versions.sh \
+  --bootstrap-server 10.x.x.147:9092 2>/dev/null | grep "id:"
+
+# Expected:
+# 10.x.x.149:9092 (id: 3 rack: null isFenced: false)
+# 10.x.x.148:9092 (id: 2 rack: null isFenced: false)
+# 10.x.x.147:9092 (id: 1 rack: null isFenced: false)
+```
+
+`isFenced: false` on all nodes = brokers active and serving traffic.
+
+### Check OOM protection
+
+```bash
+cat /proc/$(pgrep -f kafka.Kafka)/oom_score_adj
+# Must show: -500
 ```
 
 ---
 
-## Security Hardening
+## 14. Producer Configuration
 
-### SSL/TLS Encryption
-
-#### Generate Certificates
-
-```bash
-# Create Certificate Authority (CA)
-openssl req -new -x509 -keyout ca-key -out ca-cert -days 3650 \
-  -subj "/CN=KafkaCA" -passout pass:ca-password
-
-# Create keystore for broker
-keytool -keystore kafka.broker1.keystore.jks -alias broker1 \
-  -validity 3650 -genkey -keyalg RSA -ext SAN=dns:kafka-broker-1.prod.company.com \
-  -storepass broker-password -keypass broker-password \
-  -dname "CN=kafka-broker-1.prod.company.com, OU=Kafka, O=Company, L=City, ST=State, C=US"
-
-# Create CSR
-keytool -keystore kafka.broker1.keystore.jks -alias broker1 \
-  -certreq -file broker1.csr -storepass broker-password
-
-# Sign certificate
-openssl x509 -req -CA ca-cert -CAkey ca-key -in broker1.csr \
-  -out broker1-signed.crt -days 3650 -CAcreateserial \
-  -passin pass:ca-password
-
-# Import CA cert
-keytool -keystore kafka.broker1.keystore.jks -alias CARoot \
-  -import -file ca-cert -storepass broker-password -noprompt
-
-# Import signed certificate
-keytool -keystore kafka.broker1.keystore.jks -alias broker1 \
-  -import -file broker1-signed.crt -storepass broker-password
-
-# Create truststore
-keytool -keystore kafka.broker1.truststore.jks -alias CARoot \
-  -import -file ca-cert -storepass broker-password -noprompt
-```
-
-#### SSL Configuration
-
-Add to `server.properties`:
+Save as `/kafka/kafka/config/producer.properties`:
 
 ```properties
-# SSL Listeners
-listeners=PLAINTEXT://:9092,SSL://:9094,CONTROLLER://:9093
-advertised.listeners=PLAINTEXT://kafka-broker-1.prod.company.com:9092,SSL://kafka-broker-1.prod.company.com:9094
+bootstrap.servers=10.x.x.147:9092,10.x.x.148:9092,10.x.x.149:9092
 
-# SSL Configuration
-ssl.keystore.location=/opt/kafka/ssl/kafka.broker1.keystore.jks
-ssl.keystore.password=broker-password
-ssl.key.password=broker-password
-ssl.truststore.location=/opt/kafka/ssl/kafka.broker1.truststore.jks
-ssl.truststore.password=broker-password
-
-# SSL Client Authentication
-ssl.client.auth=required
-
-# SSL Protocol
-ssl.protocol=TLSv1.3
-ssl.enabled.protocols=TLSv1.3,TLSv1.2
-
-# Cipher suites
-ssl.cipher.suites=TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256
-```
-
-### SASL Authentication
-
-#### SASL/SCRAM Configuration
-
-**Step 1: Create SCRAM credentials**
-
-```bash
-# Create admin user
-kafka-configs.sh --bootstrap-server kafka-broker-1.prod.company.com:9092 \
-  --alter --add-config 'SCRAM-SHA-512=[password=admin-secret]' \
-  --entity-type users --entity-name admin
-
-# Create producer user
-kafka-configs.sh --bootstrap-server kafka-broker-1.prod.company.com:9092 \
-  --alter --add-config 'SCRAM-SHA-512=[password=producer-secret]' \
-  --entity-type users --entity-name producer-user
-
-# Create consumer user
-kafka-configs.sh --bootstrap-server kafka-broker-1.prod.company.com:9092 \
-  --alter --add-config 'SCRAM-SHA-512=[password=consumer-secret]' \
-  --entity-type users --entity-name consumer-user
-```
-
-**Step 2: Configure broker for SASL**
-
-Add to `server.properties`:
-
-```properties
-# SASL Listeners
-listeners=SASL_SSL://:9095,CONTROLLER://:9093
-advertised.listeners=SASL_SSL://kafka-broker-1.prod.company.com:9095
-
-# SASL Configuration
-sasl.enabled.mechanisms=SCRAM-SHA-512
-sasl.mechanism.inter.broker.protocol=SCRAM-SHA-512
-
-# Inter-broker SASL
-security.inter.broker.protocol=SASL_SSL
-```
-
-**Step 3: Create JAAS configuration**
-
-Create `/opt/kafka/config/kafka_server_jaas.conf`:
-
-```
-KafkaServer {
-    org.apache.kafka.common.security.scram.ScramLoginModule required
-    username="admin"
-    password="admin-secret";
-};
-```
-
-Update `kafka-server-start-production.sh`:
-
-```bash
-export KAFKA_OPTS="-Djava.security.auth.login.config=/opt/kafka/config/kafka_server_jaas.conf"
-```
-
-### Authorization (ACLs)
-
-Enable ACLs in `server.properties`:
-
-```properties
-# Enable ACLs
-authorizer.class.name=org.apache.kafka.metadata.authorizer.StandardAuthorizer
-
-# Super users
-super.users=User:admin
-```
-
-#### Create ACLs
-
-```bash
-# Allow producer to write to topic
-kafka-acls.sh --bootstrap-server kafka-broker-1.prod.company.com:9092 \
-  --add --allow-principal User:producer-user \
-  --operation Write --topic financial-transactions
-
-# Allow consumer to read from topic
-kafka-acls.sh --bootstrap-server kafka-broker-1.prod.company.com:9092 \
-  --add --allow-principal User:consumer-user \
-  --operation Read --topic financial-transactions \
-  --group financial-consumer-group
-
-# List ACLs
-kafka-acls.sh --bootstrap-server kafka-broker-1.prod.company.com:9092 \
-  --list --topic financial-transactions
-```
-
----
-
-## Monitoring and Observability
-
-### Key Metrics to Monitor
-
-#### Broker Metrics
-
-**Critical Metrics:**
-```
-kafka.server:type=ReplicaManager,name=UnderReplicatedPartitions
-  Alert: > 0 for > 5 minutes
-
-kafka.controller:type=KafkaController,name=ActiveControllerCount
-  Alert: != 1 on any broker
-
-kafka.server:type=ReplicaManager,name=PartitionCount
-  Monitor: Track growth
-
-kafka.server:type=ReplicaManager,name=LeaderCount
-  Monitor: Should be balanced across brokers
-
-kafka.network:type=RequestMetrics,name=TotalTimeMs,request=Produce
-  Alert: p99 > 100ms
-
-kafka.network:type=RequestMetrics,name=TotalTimeMs,request=Fetch
-  Alert: p99 > 100ms
-```
-
-**Performance Metrics:**
-```
-kafka.server:type=BrokerTopicMetrics,name=MessagesInPerSec
-kafka.server:type=BrokerTopicMetrics,name=BytesInPerSec
-kafka.server:type=BrokerTopicMetrics,name=BytesOutPerSec
-kafka.log:type=LogFlushStats,name=LogFlushRateAndTimeMs
-```
-
-**System Metrics:**
-```
-# CPU Usage
-# Memory Usage
-# Disk I/O (IOPS, throughput)
-# Network I/O (bandwidth utilization)
-# Disk space usage
-```
-
-### Prometheus and Grafana Setup
-
-#### Install JMX Exporter
-
-```bash
-# Download JMX Exporter
-cd /opt/kafka
-wget https://repo1.maven.org/maven2/io/prometheus/jmx/jmx_prometheus_javaagent/0.19.0/jmx_prometheus_javaagent-0.19.0.jar
-```
-
-#### JMX Exporter Configuration
-
-Create `/opt/kafka/config/kafka-metrics.yml`:
-
-```yaml
-lowercaseOutputName: true
-lowercaseOutputLabelNames: true
-
-rules:
-  # Broker metrics
-  - pattern: kafka.server<type=(.+), name=(.+)><>Value
-    name: kafka_server_$1_$2
-    
-  # Controller metrics
-  - pattern: kafka.controller<type=(.+), name=(.+)><>Value
-    name: kafka_controller_$1_$2
-    
-  # Network metrics
-  - pattern: kafka.network<type=(.+), name=(.+), request=(.+)><>Count
-    name: kafka_network_$1_$2_total
-    labels:
-      request: $3
-      
-  # Log metrics
-  - pattern: kafka.log<type=(.+), name=(.+)><>Value
-    name: kafka_log_$1_$2
-```
-
-Update `kafka-server-start-production.sh`:
-
-```bash
-export KAFKA_OPTS="$KAFKA_OPTS -javaagent:/opt/kafka/jmx_prometheus_javaagent-0.19.0.jar=7071:/opt/kafka/config/kafka-metrics.yml"
-```
-
-#### Prometheus Configuration
-
-Add to `prometheus.yml`:
-
-```yaml
-scrape_configs:
-  - job_name: 'kafka'
-    static_configs:
-      - targets:
-        - 'kafka-broker-1.prod.company.com:7071'
-        - 'kafka-broker-2.prod.company.com:7071'
-        - 'kafka-broker-3.prod.company.com:7071'
-        - 'kafka-broker-4.prod.company.com:7071'
-        - 'kafka-broker-5.prod.company.com:7071'
-```
-
-### Logging Configuration
-
-Configure Log4j in `/opt/kafka/config/log4j.properties`:
-
-```properties
-# Root logger
-log4j.rootLogger=INFO, stdout, kafkaAppender
-
-# Console appender
-log4j.appender.stdout=org.apache.log4j.ConsoleAppender
-log4j.appender.stdout.layout=org.apache.log4j.PatternLayout
-log4j.appender.stdout.layout.ConversionPattern=[%d] %p %m (%c)%n
-
-# File appender
-log4j.appender.kafkaAppender=org.apache.log4j.RollingFileAppender
-log4j.appender.kafkaAppender.File=/var/log/kafka/server.log
-log4j.appender.kafkaAppender.MaxFileSize=100MB
-log4j.appender.kafkaAppender.MaxBackupIndex=10
-log4j.appender.kafkaAppender.layout=org.apache.log4j.PatternLayout
-log4j.appender.kafkaAppender.layout.ConversionPattern=[%d] %p %m (%c)%n
-
-# Request logging
-log4j.appender.requestAppender=org.apache.log4j.RollingFileAppender
-log4j.appender.requestAppender.File=/var/log/kafka/kafka-request.log
-log4j.appender.requestAppender.MaxFileSize=100MB
-log4j.appender.requestAppender.MaxBackupIndex=10
-log4j.appender.requestAppender.layout=org.apache.log4j.PatternLayout
-log4j.appender.requestAppender.layout.ConversionPattern=[%d] %p %m (%c)%n
-
-# Controller logging
-log4j.logger.kafka.controller=INFO, controllerAppender
-log4j.additivity.kafka.controller=false
-log4j.appender.controllerAppender=org.apache.log4j.RollingFileAppender
-log4j.appender.controllerAppender.File=/var/log/kafka/controller.log
-log4j.appender.controllerAppender.MaxFileSize=100MB
-log4j.appender.controllerAppender.MaxBackupIndex=10
-```
-
-### Alerting Rules
-
-**Critical Alerts (PagerDuty/Opsgenie):**
-```yaml
-groups:
-  - name: kafka_critical
-    rules:
-      - alert: KafkaBrokerDown
-        expr: up{job="kafka"} == 0
-        for: 1m
-        annotations:
-          summary: "Kafka broker {{ $labels.instance }} is down"
-          
-      - alert: KafkaUnderReplicatedPartitions
-        expr: kafka_server_replicamanager_underreplicatedpartitions > 0
-        for: 5m
-        annotations:
-          summary: "Kafka has under-replicated partitions"
-          
-      - alert: KafkaNoActiveController
-        expr: sum(kafka_controller_kafkacontroller_activecontrollercount) != 1
-        for: 1m
-        annotations:
-          summary: "Kafka cluster has no active controller"
-```
-
-**Warning Alerts (Slack/Email):**
-```yaml
-  - name: kafka_warning
-    rules:
-      - alert: KafkaHighProduceLatency
-        expr: kafka_network_requestmetrics_totaltimems{request="Produce",quantile="0.99"} > 100
-        for: 10m
-        annotations:
-          summary: "Kafka produce latency is high"
-          
-      - alert: KafkaDiskUsageHigh
-        expr: (node_filesystem_avail_bytes{mountpoint="/var/kafka-logs-1"} / node_filesystem_size_bytes{mountpoint="/var/kafka-logs-1"}) < 0.2
-        for: 5m
-        annotations:
-          summary: "Kafka disk usage is high"
-```
-
----
-
-## Backup and Disaster Recovery
-
-### Backup Strategies
-
-#### Option 1: Topic Mirroring (Recommended)
-
-Use MirrorMaker 2.0 for real-time replication to DR cluster:
-
-```properties
-# mm2.properties
-clusters=primary,secondary
-primary.bootstrap.servers=kafka1.primary:9092,kafka2.primary:9092
-secondary.bootstrap.servers=kafka1.secondary:9092,kafka2.secondary:9092
-
-primary->secondary.enabled=true
-primary->secondary.topics=.*
-
-# Replication settings
-replication.factor=3
-refresh.topics.interval.seconds=60
-sync.topic.configs.enabled=true
-```
-
-Start MirrorMaker:
-```bash
-connect-mirror-maker.sh mm2.properties
-```
-
-#### Option 2: Snapshot Backups
-
-```bash
-#!/bin/bash
-# kafka-backup.sh
-
-BACKUP_DIR="/backup/kafka"
-DATE=$(date +%Y%m%d-%H%M%S)
-
-# Stop broker (for consistent backup)
-systemctl stop kafka
-
-# Backup Kafka data
-tar -czf $BACKUP_DIR/kafka-data-$DATE.tar.gz /var/kafka-logs-*
-
-# Backup configuration
-tar -czf $BACKUP_DIR/kafka-config-$DATE.tar.gz /opt/kafka/config
-
-# Start broker
-systemctl start kafka
-
-# Retention: Keep last 7 days
-find $BACKUP_DIR -name "kafka-data-*.tar.gz" -mtime +7 -delete
-```
-
-#### Option 3: Kafka Connect
-
-Use Kafka Connect with S3 sink for archival:
-
-```json
-{
-  "name": "s3-sink-connector",
-  "config": {
-    "connector.class": "io.confluent.connect.s3.S3SinkConnector",
-    "tasks.max": "10",
-    "topics": "financial-transactions",
-    "s3.bucket.name": "kafka-archive",
-    "s3.region": "us-east-1",
-    "flush.size": "10000",
-    "storage.class": "io.confluent.connect.s3.storage.S3Storage",
-    "format.class": "io.confluent.connect.s3.format.json.JsonFormat",
-    "partitioner.class": "io.confluent.connect.storage.partitioner.TimeBasedPartitioner",
-    "path.format": "'year'=YYYY/'month'=MM/'day'=dd",
-    "partition.duration.ms": "3600000",
-    "timestamp.extractor": "Record"
-  }
-}
-```
-
-### Disaster Recovery Procedures
-
-#### Scenario: Single Broker Failure
-
-```bash
-# 1. Identify failed broker
-kafka-metadata-quorum.sh --bootstrap-server kafka1:9092 describe --status
-
-# 2. Replace hardware (if needed)
-
-# 3. Reinstall Kafka
-
-# 4. Restore configuration
-tar -xzf kafka-config-backup.tar.gz -C /opt/kafka/
-
-# 5. Format storage with SAME cluster ID
-kafka-storage.sh format -t <CLUSTER_ID> -c /opt/kafka/config/server.properties
-
-# 6. Start broker
-systemctl start kafka
-
-# 7. Monitor re-replication
-watch kafka-topics.sh --describe --bootstrap-server kafka1:9092 --under-replicated-partitions
-```
-
-#### Scenario: Total Cluster Loss
-
-```bash
-# 1. Restore from backup on all nodes
-for i in 1 2 3 4 5; do
-  ssh kafka$i "tar -xzf /backup/kafka/kafka-data-latest.tar.gz -C /"
-done
-
-# 2. Start all brokers
-for i in 1 2 3 4 5; do
-  ssh kafka$i "systemctl start kafka"
-done
-
-# 3. Verify cluster health
-kafka-metadata-quorum.sh --bootstrap-server kafka1:9092 describe --status
-
-# 4. Verify data integrity
-kafka-run-class.sh kafka.tools.GetOffsetShell \
-  --broker-list kafka1:9092 \
-  --topic financial-transactions --time -1
-```
-
-### RTO and RPO Targets
-
-```
-Recovery Time Objective (RTO):
-  Single broker failure: < 15 minutes
-  Multi-broker failure: < 1 hour
-  Total cluster failure: < 4 hours
-
-Recovery Point Objective (RPO):
-  With MirrorMaker: Near-zero (< 1 second)
-  With snapshots: Last backup interval (typically hours)
-  With acks=all and RF=3: Zero data loss
-```
-
----
-
-## Performance Tuning
-
-### Producer Configuration
-
-**High Throughput Configuration:**
-```properties
-bootstrap.servers=kafka1:9092,kafka2:9092,kafka3:9092
-key.serializer=org.apache.kafka.common.serialization.StringSerializer
-value.serializer=org.apache.kafka.common.serialization.StringSerializer
-
-# Throughput optimization
-acks=1
-compression.type=lz4
-batch.size=65536
-linger.ms=10
-buffer.memory=67108864
-
-# Retries
-retries=2147483647
-max.in.flight.requests.per.connection=5
-```
-
-**Low Latency Configuration:**
-```properties
-# Latency optimization
-acks=1
-compression.type=none
-batch.size=16384
-linger.ms=0
-buffer.memory=33554432
-```
-
-**High Durability Configuration (Financial Transactions):**
-```properties
-# Durability optimization
-acks=all
+# Idempotence — exactly-once delivery per partition, no duplicates on retry
 enable.idempotence=true
-max.in.flight.requests.per.connection=5
+
+# acks=all required with idempotence=true
+# Producer waits for acknowledgment from all in-sync replicas
+acks=all
+
+# Retries — safe with idempotence (deduplication handles retry duplicates)
 retries=2147483647
+retry.backoff.ms=500
+retry.backoff.max.ms=5000
+
+# Batching — 64 KB batch, wait up to 5ms to fill batch
+# Increases throughput at cost of minor latency
+batch.size=65536
+linger.ms=5
+buffer.memory=33554432
+
+# Max in-flight — idempotence requires <= 5
+max.in.flight.requests.per.connection=5
+
+# LZ4 compression — fast, ~40% size reduction, minimal CPU overhead
 compression.type=lz4
 
 # Timeouts
 request.timeout.ms=30000
 delivery.timeout.ms=120000
-
-# Transactions
-transactional.id=producer-1
-transaction.timeout.ms=60000
 ```
 
-### Consumer Configuration
+---
 
-**High Throughput Configuration:**
-```properties
-bootstrap.servers=kafka1:9092,kafka2:9092,kafka3:9092
-group.id=consumer-group-1
-key.deserializer=org.apache.kafka.common.serialization.StringDeserializer
-value.deserializer=org.apache.kafka.common.serialization.StringDeserializer
-
-# Throughput optimization
-fetch.min.bytes=1048576
-fetch.max.wait.ms=500
-max.partition.fetch.bytes=1048576
-
-# Poll settings
-max.poll.records=500
-max.poll.interval.ms=300000
-
-# Offset commit
-enable.auto.commit=false
-```
-
-**Low Latency Configuration:**
-```properties
-# Latency optimization
-fetch.min.bytes=1
-fetch.max.wait.ms=100
-max.partition.fetch.bytes=524288
-max.poll.records=100
-```
-
-### Topic Configuration
+## 15. Create Production Topics
 
 ```bash
-# High throughput topic
-kafka-topics.sh --create \
-  --bootstrap-server kafka1:9092 \
-  --topic high-throughput-topic \
-  --partitions 50 \
+/kafka/kafka/bin/kafka-topics.sh --create \
+  --bootstrap-server 10.x.x.147:9092 \
+  --topic prod-events \
+  --partitions 6 \
   --replication-factor 3 \
   --config min.insync.replicas=2 \
   --config compression.type=lz4 \
-  --config segment.bytes=1073741824 \
-  --config retention.ms=86400000
+  --config retention.ms=604800000 \
+  --config retention.bytes=107374182400
 
-# Low latency topic
-kafka-topics.sh --create \
-  --bootstrap-server kafka1:9092 \
-  --topic low-latency-topic \
-  --partitions 20 \
-  --replication-factor 3 \
-  --config min.insync.replicas=2 \
-  --config compression.type=none \
-  --config segment.bytes=536870912
-
-# Compacted topic (state management)
-kafka-topics.sh --create \
-  --bootstrap-server kafka1:9092 \
-  --topic compacted-topic \
-  --partitions 10 \
-  --replication-factor 3 \
-  --config cleanup.policy=compact \
-  --config min.compaction.lag.ms=0 \
-  --config segment.ms=3600000
+# Verify
+/kafka/kafka/bin/kafka-topics.sh \
+  --bootstrap-server 10.x.x.147:9092 \
+  --describe --topic prod-events
 ```
 
-### Partition Strategy
+### Partition count guidance
 
-**Calculating Optimal Partitions:**
-```
-Target Throughput (MB/s) / Producer Throughput per Partition (MB/s) = Partitions
+| Throughput target | Partitions |
+|------------------|-----------|
+| < 50 MB/s | 6 (2 per broker) |
+| 50–200 MB/s | 12 (4 per broker) |
+| 200 MB/s+ | 24+ (8+ per broker) |
 
-Example:
-  Target: 500 MB/s
-  Per partition: 10 MB/s
-  Partitions: 500 / 10 = 50 partitions
-```
-
-**Guidelines:**
-- Start with: (target_throughput_MB_s / 10 MB/s)
-- Minimum: Number of consumers in largest consumer group
-- Maximum: Consider operational overhead (1000s of partitions require more resources)
-- Rule of thumb: 1000-2000 partitions per broker maximum
+> **Rule:** More partitions = more parallelism for consumers, but more open file handles and slower rebalancing. Start conservative, scale up.
 
 ---
 
-## Operational Procedures
+## 16. Maintenance Operations
 
-### Rolling Restart
+### Check under-replicated partitions
 
 ```bash
-#!/bin/bash
-# rolling-restart.sh
-
-BROKERS=(kafka1 kafka2 kafka3 kafka4 kafka5)
-
-for broker in "${BROKERS[@]}"; do
-  echo "Restarting $broker..."
-  
-  # Stop broker
-  ssh $broker "systemctl stop kafka"
-  
-  # Wait for partitions to re-elect leaders (30 seconds)
-  sleep 30
-  
-  # Start broker
-  ssh $broker "systemctl start kafka"
-  
-  # Wait for broker to fully start and rejoin (60 seconds)
-  sleep 60
-  
-  # Verify broker is up
-  kafka-broker-api-versions.sh --bootstrap-server $broker:9092
-  
-  # Check for under-replicated partitions
-  under_rep=$(kafka-topics.sh --describe --bootstrap-server kafka1:9092 \
-    --under-replicated-partitions | wc -l)
-  
-  if [ $under_rep -gt 0 ]; then
-    echo "WARNING: $under_rep under-replicated partitions after restarting $broker"
-  fi
-  
-  echo "Waiting 2 minutes before next broker..."
-  sleep 120
-done
-
-echo "Rolling restart complete"
+# Should return empty on a healthy cluster
+/kafka/kafka/bin/kafka-topics.sh \
+  --bootstrap-server 10.x.x.147:9092 \
+  --describe --under-replicated-partitions
 ```
 
-### Adding a New Broker
+### Check consumer group lag
 
 ```bash
-# 1. Install Kafka on new node (broker 6)
-
-# 2. Configure server.properties with node.id=6
-# Add to controller.quorum.voters on ALL nodes (requires restart)
-
-# 3. Format storage
-kafka-storage.sh format -t <CLUSTER_ID> -c /opt/kafka/config/server.properties
-
-# 4. Start new broker
-systemctl start kafka
-
-# 5. Verify broker joined
-kafka-broker-api-versions.sh --bootstrap-server kafka6:9092
-
-# 6. Create partition reassignment plan
-cat > reassignment.json << EOF
-{
-  "version": 1,
-  "partitions": [
-    {"topic": "my-topic", "partition": 0, "replicas": [1,2,6]},
-    {"topic": "my-topic", "partition": 1, "replicas": [2,3,6]}
-  ]
-}
-EOF
-
-# 7. Execute reassignment
-kafka-reassign-partitions.sh --bootstrap-server kafka1:9092 \
-  --reassignment-json-file reassignment.json --execute
-
-# 8. Monitor progress
-kafka-reassign-partitions.sh --bootstrap-server kafka1:9092 \
-  --reassignment-json-file reassignment.json --verify
+/kafka/kafka/bin/kafka-consumer-groups.sh \
+  --bootstrap-server 10.x.x.147:9092 \
+  --describe --all-groups
 ```
 
-### Removing a Broker
+### Rolling restart (zero downtime)
 
 ```bash
-# 1. Generate reassignment to move partitions OFF broker 5
-kafka-reassign-partitions.sh --bootstrap-server kafka1:9092 \
-  --broker-list "1,2,3,4" \
-  --topics-to-move-json-file topics.json \
-  --generate
+# Restart ONE node at a time. Wait for ISR to recover before next node.
+systemctl restart kafka
+sleep 30
 
-# 2. Execute reassignment
-kafka-reassign-partitions.sh --bootstrap-server kafka1:9092 \
-  --reassignment-json-file reassignment.json --execute
-
-# 3. Wait for completion (can take hours)
-kafka-reassign-partitions.sh --bootstrap-server kafka1:9092 \
-  --reassignment-json-file reassignment.json --verify
-
-# 4. Stop broker
-ssh kafka5 "systemctl stop kafka"
-
-# 5. Update controller.quorum.voters on remaining nodes (requires restart)
+# Verify ISR clean before proceeding to next node
+/kafka/kafka/bin/kafka-topics.sh \
+  --bootstrap-server 10.x.x.147:9092 \
+  --describe --under-replicated-partitions
+# Output must be empty before restarting next node
 ```
 
-### Increasing Partition Count
+### Check disk usage per broker
 
 ```bash
-# WARNING: Cannot decrease partition count
-
-# Increase partitions
-kafka-topics.sh --alter \
-  --bootstrap-server kafka1:9092 \
-  --topic my-topic \
-  --partitions 100
-
-# Note: Existing messages won't be redistributed
-# New messages will use new partitions
+du -sh /data/kafka/
+df -h /data
 ```
 
-### Upgrading Kafka Version
+### Temporarily enable request logging (debug only)
 
 ```bash
-# Kafka supports rolling upgrades
+# Enable
+sed -i 's/kafka.request.logger.*level: WARN/kafka.request.logger\n        level: INFO/' \
+    /kafka/kafka/config/log4j2.yaml
+systemctl restart kafka
 
-# 1. Read upgrade notes
-# https://kafka.apache.org/documentation/#upgrade
-
-# 2. Update inter.broker.protocol.version (optional, for rollback safety)
-# In server.properties: inter.broker.protocol.version=3.8
-
-# 3. Rolling upgrade
-for broker in kafka1 kafka2 kafka3 kafka4 kafka5; do
-  ssh $broker << EOF
-    # Stop broker
-    systemctl stop kafka
-    
-    # Backup current version
-    cp -r /opt/kafka /opt/kafka-3.8-backup
-    
-    # Install new version
-    tar -xzf kafka_2.13-3.9.0.tgz -C /opt/
-    rm -rf /opt/kafka/*
-    mv /opt/kafka_2.13-3.9.0/* /opt/kafka/
-    
-    # Restore configuration
-    cp /opt/kafka-3.8-backup/config/server.properties /opt/kafka/config/
-    
-    # Start broker
-    systemctl start kafka
-EOF
-  
-  sleep 120  # Wait before next broker
-done
-
-# 4. After all brokers upgraded, update inter.broker.protocol.version to 3.9
-# Requires another rolling restart
+# REVERT after debugging — request log is extremely high volume
+sed -i 's/kafka.request.logger.*level: INFO/kafka.request.logger\n        level: WARN/' \
+    /kafka/kafka/config/log4j2.yaml
+systemctl restart kafka
 ```
 
 ---
 
-## Troubleshooting Guide
+## 17. Why Swap Must Be Disabled
 
-### Common Issues
+Swap is disabled on Kafka hosts by design — not as an optimization, but as a **correctness requirement**.
 
-#### Issue: Under-Replicated Partitions
+### The failure chain with swap enabled
 
-**Symptoms:**
 ```
-kafka.server:type=ReplicaManager,name=UnderReplicatedPartitions > 0
-```
-
-**Diagnosis:**
-```bash
-# List under-replicated partitions
-kafka-topics.sh --describe \
-  --bootstrap-server kafka1:9092 \
-  --under-replicated-partitions
-
-# Check broker logs
-tail -f /var/log/kafka/server.log | grep -i "replica"
-
-# Check network connectivity
-ping kafka2
-telnet kafka2 9092
+Memory pressure
+→ OS swaps out JVM heap pages to disk
+→ GC runs, accesses swapped-out page
+→ OS swaps page back in (disk I/O: milliseconds)
+→ GC pause: 20ms → seconds
+→ Broker stops responding to controller heartbeats
+→ Controller marks broker as dead
+→ Partition leadership election triggered
+→ Consumer rebalancing cascades across cluster
+→ Throughput drops, latency spikes, alert storm
 ```
 
-**Resolution:**
-1. Check if any broker is down - restart if needed
-2. Check network connectivity between brokers
-3. Check disk space on affected brokers
-4. Check for I/O bottlenecks (iostat -x 5)
-5. Increase num.replica.fetchers if network is slow
+This failure mode is not theoretical. It is the most common root cause of mysterious Kafka instability in environments where swap is left on.
 
-#### Issue: No Active Controller
+### Why it is safe to disable swap
 
-**Symptoms:**
-```
-kafka.controller:type=KafkaController,name=ActiveControllerCount != 1
-```
+On a properly sized Kafka host, memory pressure should not occur:
 
-**Diagnosis:**
-```bash
-# Check controller status
-kafka-metadata-quorum.sh --bootstrap-server kafka1:9092 describe --status
+| Memory | Size | Notes |
+|--------|------|-------|
+| JVM heap | 6 GB | Fixed (`-Xms` = `-Xmx`) |
+| OS page cache | ~8 GB | Kafka's read performance |
+| OS + kernel | ~2 GB | Always available |
+| **Total** | **16 GB** | No pressure point |
 
-# Check logs on all brokers
-grep -i "controller" /var/log/kafka/server.log
-```
+### OOM protection without swap
 
-**Resolution:**
-1. Verify quorum health (need majority of nodes)
-2. Check for network partitions
-3. Restart broker with highest node.id first
-4. If stuck, rolling restart all brokers
-
-#### Issue: High Produce Latency
-
-**Symptoms:**
-```
-Produce request p99 latency > 100ms
-```
-
-**Diagnosis:**
-```bash
-# Check broker metrics
-kafka-run-class.sh kafka.tools.JmxTool \
-  --object-name kafka.network:type=RequestMetrics,name=TotalTimeMs,request=Produce \
-  --jmx-url service:jmx:rmi:///jndi/rmi://kafka1:9999/jmxrmi
-
-# Check disk I/O
-iostat -x 5
-
-# Check network
-iftop -i eth0
-```
-
-**Resolution:**
-1. Check disk I/O (use faster disks, RAID 10, or NVMe)
-2. Reduce batch.size or linger.ms on producer
-3. Increase num.io.threads on broker
-4. Add more partitions to distribute load
-5. Check if log compaction is running (CPU intensive)
-
-#### Issue: Consumer Lag
-
-**Symptoms:**
-```
-Consumer group lag continuously increasing
-```
-
-**Diagnosis:**
-```bash
-# Check consumer lag
-kafka-consumer-groups.sh --bootstrap-server kafka1:9092 \
-  --group my-consumer-group --describe
-
-# Check consumer logs
-# Check if consumers are alive
-
-# Check partition distribution
-kafka-consumer-groups.sh --bootstrap-server kafka1:9092 \
-  --group my-consumer-group --describe --members
-```
-
-**Resolution:**
-1. Scale out consumers (add more instances)
-2. Increase max.poll.records for batch processing
-3. Optimize consumer processing logic
-4. Check for slow consumers (look at processing time)
-5. Increase session.timeout.ms if consumers are timing out
-
-#### Issue: Disk Full
-
-**Symptoms:**
-```
-ERROR Error while writing to checkpoint file (kafka.server.LogDirFailureChannel)
-```
-
-**Diagnosis:**
-```bash
-# Check disk space
-df -h /var/kafka-logs-*
-
-# Check largest topics
-kafka-log-dirs.sh --bootstrap-server kafka1:9092 \
-  --broker-list 1 --describe
-```
-
-**Resolution:**
-```bash
-# Immediate: Reduce retention
-kafka-configs.sh --bootstrap-server kafka1:9092 \
-  --entity-type topics --entity-name large-topic \
-  --alter --add-config retention.ms=3600000
-
-# Long-term: Add more disk or brokers
-```
-
-#### Issue: Slow Consumer Rebalance
-
-**Symptoms:**
-```
-Consumer group rebalance takes > 30 seconds
-```
-
-**Resolution:**
-```properties
-# On consumers:
-session.timeout.ms=30000
-heartbeat.interval.ms=3000
-max.poll.interval.ms=600000
-
-# On broker server.properties:
-group.initial.rebalance.delay.ms=3000
-```
-
-### Diagnostic Commands
+With swap disabled, the OOM killer is the only safety net. Ensure `OOMScoreAdjust=-500` is set in the systemd unit so the kernel targets other processes first:
 
 ```bash
-# Check cluster status
-kafka-metadata-quorum.sh --bootstrap-server kafka1:9092 describe --status
-
-# List all topics
-kafka-topics.sh --list --bootstrap-server kafka1:9092
-
-# Describe topic
-kafka-topics.sh --describe --bootstrap-server kafka1:9092 --topic my-topic
-
-# Check consumer groups
-kafka-consumer-groups.sh --list --bootstrap-server kafka1:9092
-
-# Check consumer lag
-kafka-consumer-groups.sh --bootstrap-server kafka1:9092 \
-  --group my-group --describe
-
-# Check log segments
-kafka-log-dirs.sh --bootstrap-server kafka1:9092 \
-  --describe --broker-list 1,2,3
-
-# Check broker configs
-kafka-configs.sh --bootstrap-server kafka1:9092 \
-  --entity-type brokers --entity-name 1 --describe
-
-# Verify topic configs
-kafka-configs.sh --bootstrap-server kafka1:9092 \
-  --entity-type topics --entity-name my-topic --describe
-
-# Test connectivity
-kafka-broker-api-versions.sh --bootstrap-server kafka1:9092
+# Verify after each restart
+cat /proc/$(pgrep -f kafka.Kafka)/oom_score_adj
+# Must show: -500
 ```
+
+### Industry precedent
+
+Running Kafka with swap disabled is standard practice at Confluent, LinkedIn, and Uber — all documented in their respective engineering blogs. `vm.swappiness=1` (not 0) is set as a secondary guard in case a swap device is added in future.
 
 ---
 
-## Capacity Planning
+## Quick Reference
 
-### Disk Space Calculation
-
-```
-Required Disk Space = (Daily Throughput × Retention Days × Replication Factor) / Number of Brokers
-
-Example:
-  Daily Throughput: 1 TB
-  Retention: 7 days
-  Replication Factor: 3
-  Brokers: 5
-  
-  Required per Broker = (1000 GB × 7 × 3) / 5 = 4,200 GB
-  
-  With 30% buffer: 4,200 × 1.3 = 5,460 GB (~6 TB per broker)
-```
-
-### Throughput Planning
-
-**Single Partition Limits:**
-```
-Producer: ~10-50 MB/s per partition
-Consumer: ~20-100 MB/s per partition
-```
-
-**Broker Limits:**
-```
-Network: Limited by NIC (1 Gbps = 125 MB/s, 10 Gbps = 1250 MB/s)
-Disk: Limited by disk I/O (SSD: 500+ MB/s, NVMe: 3000+ MB/s)
-```
-
-### Memory Requirements
-
-```
-JVM Heap: 6-16 GB (typically 25-50% of total RAM)
-Page Cache: Remaining RAM (50-75%)
-
-Example for 64 GB RAM:
-  JVM Heap: 16 GB
-  Page Cache: 45 GB
-  OS/Other: 3 GB
-```
-
-### Network Bandwidth
-
-```
-Required Bandwidth = Peak Throughput × Replication Factor × 1.5 (buffer)
-
-Example:
-  Peak: 500 MB/s
-  Replication: 3
-  Required: 500 × 3 × 1.5 = 2,250 MB/s = 18 Gbps
-  
-  Recommendation: Use 25 Gbps NICs
-```
-
----
-
-## Migration Strategies
-
-### Migrating from ZooKeeper to KRaft
-
-**Note:** Direct migration from ZooKeeper to KRaft is supported but complex. Test thoroughly in non-production first.
+### Health check commands
 
 ```bash
-# 1. Ensure all brokers on Kafka 3.3+
+# Quorum status
+/kafka/kafka/bin/kafka-metadata-quorum.sh \
+  --bootstrap-server 10.x.x.147:9092 describe --status
 
-# 2. Enable migration on ZooKeeper brokers
-# Add to server.properties:
-zookeeper.metadata.migration.enable=true
+# All brokers
+/kafka/kafka/bin/kafka-broker-api-versions.sh \
+  --bootstrap-server 10.x.x.147:9092 2>/dev/null | grep "id:"
 
-# 3. Deploy KRaft controllers (separate from brokers)
-# Configure controllers with migration enabled
+# Under-replicated partitions (must be empty)
+/kafka/kafka/bin/kafka-topics.sh \
+  --bootstrap-server 10.x.x.147:9092 \
+  --describe --under-replicated-partitions
 
-# 4. Update brokers to use KRaft controllers
-# Add to server.properties:
-controller.quorum.voters=1@controller1:9093,2@controller2:9093,3@controller3:9093
+# OOM protection
+cat /proc/$(pgrep -f kafka.Kafka)/oom_score_adj
 
-# 5. Rolling restart brokers
+# Heap in use
+ps aux | grep kafka | grep -o '\-Xm[sx][^ ]*'
 
-# 6. Monitor migration
-kafka-metadata-quorum.sh --bootstrap-server kafka1:9092 describe --status
-
-# 7. Finalize migration (irreversible)
-kafka-metadata-migration.sh --finalize
-
-# 8. Remove ZooKeeper configuration
-# Remove: zookeeper.connect from server.properties
-
-# 9. Decommission ZooKeeper cluster
+# Service status
+systemctl status kafka
 ```
 
-### Blue-Green Deployment
+### Configuration files summary
 
-```bash
-# 1. Deploy new KRaft cluster (Green)
-
-# 2. Set up MirrorMaker 2.0 from old cluster (Blue) to new cluster (Green)
-
-# 3. Let MirrorMaker catch up (monitor lag)
-
-# 4. During maintenance window:
-#    a. Stop producers/consumers
-#    b. Wait for MirrorMaker to catch up completely
-#    c. Update application configs to point to Green cluster
-#    d. Start producers/consumers
-
-# 5. Monitor Green cluster
-
-# 6. Keep Blue cluster for rollback (1-2 weeks)
-
-# 7. Decommission Blue cluster
-```
+| File | Purpose |
+|------|---------|
+| `/kafka/kafka/config/server.properties` | Broker/controller config |
+| `/kafka/kafka/config/jvm.options` | Heap and GC settings |
+| `/kafka/kafka/config/log4j2.yaml` | Application logging |
+| `/kafka/kafka/config/producer.properties` | Producer defaults |
+| `/etc/systemd/system/kafka.service` | Process management |
+| `/etc/sysctl.d/99-kafka.conf` | Kernel parameters |
+| `/etc/security/limits.d/kafka.conf` | File descriptor limits |
+| `/etc/logrotate.d/kafka` | Log rotation |
+| `/etc/udev/rules.d/60-kafka-disk.rules` | Disk scheduler (persistent) |
 
 ---
 
-## Best Practices Checklist
-
-### Pre-Production Checklist
-
-**Infrastructure:**
-- [ ] Minimum 5 broker nodes deployed
-- [ ] Brokers distributed across availability zones
-- [ ] Adequate CPU, memory, and disk resources
-- [ ] 10 Gbps network connectivity
-- [ ] Firewall rules configured
-- [ ] DNS entries created
-- [ ] NTP configured for time synchronization
-
-**Configuration:**
-- [ ] replication.factor=3 for all critical topics
-- [ ] min.insync.replicas=2
-- [ ] unclean.leader.election.enable=false
-- [ ] auto.create.topics.enable=false
-- [ ] log.retention properly configured
-- [ ] JVM heap size appropriate (6-16 GB)
-- [ ] File descriptors increased (100k+)
-- [ ] Swap disabled
-- [ ] Kernel parameters tuned
-
-**Security:**
-- [ ] SSL/TLS enabled
-- [ ] SASL authentication configured
-- [ ] ACLs defined for all users
-- [ ] Certificates valid and not expiring soon
-- [ ] Secrets management implemented
-- [ ] Network segmentation applied
-
-**Monitoring:**
-- [ ] JMX exporter configured
-- [ ] Prometheus scraping metrics
-- [ ] Grafana dashboards created
-- [ ] Critical alerts configured
-- [ ] On-call rotation established
-- [ ] Runbooks documented
-
-**Backup & DR:**
-- [ ] Backup strategy defined
-- [ ] MirrorMaker 2.0 configured (if using)
-- [ ] Backup testing completed
-- [ ] DR procedures documented
-- [ ] RTO/RPO targets defined
-- [ ] DR drills scheduled
-
-**Testing:**
-- [ ] Load testing completed
-- [ ] Failover testing completed
-- [ ] Rolling restart tested
-- [ ] Consumer lag monitoring verified
-- [ ] Performance benchmarks documented
-
-### Operational Checklist
-
-**Daily:**
-- [ ] Check under-replicated partitions (should be 0)
-- [ ] Check active controller count (should be 1)
-- [ ] Review critical alerts
-- [ ] Check consumer lag
-- [ ] Review disk space
-
-**Weekly:**
-- [ ] Review performance metrics
-- [ ] Check for slow consumers
-- [ ] Review partition distribution
-- [ ] Check log segment sizes
-- [ ] Review security logs
-
-**Monthly:**
-- [ ] Capacity planning review
-- [ ] Performance tuning review
-- [ ] Update documentation
-- [ ] Review and update alerts
-- [ ] Security audit
-- [ ] DR drill
-
-**Quarterly:**
-- [ ] Kafka version upgrade planning
-- [ ] Hardware refresh planning
-- [ ] Architecture review
-- [ ] Disaster recovery test
-- [ ] Security penetration testing
-
----
-
-## References
-
-### Official Documentation
-
-1. **Apache Kafka Documentation**  
-   https://kafka.apache.org/documentation/
-
-2. **KRaft (KIP-500) Documentation**  
-   https://kafka.apache.org/documentation/#kraft
-
-3. **Kafka Operations Guide**  
-   https://kafka.apache.org/documentation/#operations
-
-4. **Kafka Configuration Reference**  
-   https://kafka.apache.org/documentation/#configuration
-
-5. **Kafka Security Guide**  
-   https://kafka.apache.org/documentation/#security
-
-### Kafka Improvement Proposals
-
-6. **KIP-500: Replace ZooKeeper with Self-Managed Metadata Quorum**  
-   https://cwiki.apache.org/confluence/display/KAFKA/KIP-500
-
-7. **KIP-631: The Quorum-based Kafka Controller**  
-   https://cwiki.apache.org/confluence/display/KAFKA/KIP-631
-
-8. **KIP-595: A Raft Protocol for the Metadata Quorum**  
-   https://cwiki.apache.org/confluence/display/KAFKA/KIP-595
-
-### Best Practices & Production Guides
-
-9. **Confluent Production Checklist**  
-   https://docs.confluent.io/platform/current/installation/deployment.html
-
-10. **LinkedIn: Running Kafka at Scale**  
-    https://engineering.linkedin.com/kafka/running-kafka-scale
-
-11. **Uber: Reliable Reprocessing at Uber with Kafka**  
-    https://eng.uber.com/reliable-reprocessing/
-
-12. **Netflix: Kafka Inside Keystone Pipeline**  
-    https://netflixtechblog.com/kafka-inside-keystone-pipeline-dd5aeabaf6bb
-
-### Monitoring & Observability
-
-13. **Kafka Monitoring with Prometheus**  
-    https://github.com/prometheus/jmx_exporter
-
-14. **Confluent Monitoring Stack**  
-    https://docs.confluent.io/platform/current/installation/docker/operations/monitoring.html
-
-15. **Kafka Lag Exporter**  
-    https://github.com/lightbend/kafka-lag-exporter
-
-### Performance & Tuning
-
-16. **Kafka Performance Optimization Guide**  
-    https://www.confluent.io/blog/configure-kafka-to-minimize-latency/
-
-17. **Kafka Benchmarking**  
-    https://kafka.apache.org/documentation/#maximizingefficiency
-
-18. **Capacity Planning**  
-    https://docs.confluent.io/platform/current/kafka/deployment.html#capacity-planning
-
-### Tools & Utilities
-
-19. **Kafka Manager (CMAK)**  
-    https://github.com/yahoo/CMAK
-
-20. **Kafdrop - Kafka Web UI**  
-    https://github.com/obsidiandynamics/kafdrop
-
-21. **Conduktor Platform**  
-    https://www.conduktor.io/
-
-22. **kcat (formerly kafkacat)**  
-    https://github.com/edenhill/kcat
-
-### Disaster Recovery
-
-23. **MirrorMaker 2.0 Documentation**  
-    https://kafka.apache.org/documentation/#georeplication
-
-24. **Disaster Recovery Strategies**  
-    https://www.confluent.io/blog/disaster-recovery-multi-datacenter-apache-kafka-deployments/
-
-### Security
-
-25. **Kafka Security Documentation**  
-    https://kafka.apache.org/documentation/#security
-
-26. **SASL/SCRAM Authentication**  
-    https://kafka.apache.org/documentation/#security_sasl_scram
-
-27. **SSL/TLS Configuration**  
-    https://kafka.apache.org/documentation/#security_ssl
-
-### Cloud-Specific Guides
-
-28. **AWS MSK Best Practices**  
-    https://docs.aws.amazon.com/msk/latest/developerguide/bestpractices.html
-
-29. **Azure Event Hubs (Kafka-compatible)**  
-    https://docs.microsoft.com/en-us/azure/event-hubs/
-
-30. **Google Cloud Pub/Sub with Kafka**  
-    https://cloud.google.com/pubsub/docs/kafka
-
-### Books & Training
-
-31. **"Kafka: The Definitive Guide" by Neha Narkhede et al.**  
-    O'Reilly Media
-
-32. **"Kafka Streams in Action" by William Bejeck**  
-    Manning Publications
-
-33. **Confluent Developer Courses**  
-    https://developer.confluent.io/courses/
-
-### Community Resources
-
-34. **Apache Kafka Mailing Lists**  
-    https://kafka.apache.org/contact
-
-35. **Confluent Community Forum**  
-    https://forum.confluent.io/
-
-36. **Kafka Users Slack**  
-    https://kafka-users.slack.com/
-
-37. **Stack Overflow - Kafka Tag**  
-    https://stackoverflow.com/questions/tagged/apache-kafka
-
-### Release Information
-
-38. **Kafka Release Notes**  
-    https://kafka.apache.org/downloads
-
-39. **Upgrade Guide**  
-    https://kafka.apache.org/documentation/#upgrade
-
----
-
-## Contributing
-
-This guide is maintained as an open-source project. Contributions are welcome!
-
-**How to Contribute:**
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
-
-**Areas for Contribution:**
-- Additional troubleshooting scenarios
-- Cloud-specific deployment guides
-- Performance tuning case studies
-- Updated configuration examples
-- Monitoring dashboard templates
-
-## License
-
-This guide is released under the MIT License.
-
-## Changelog
-
-**Version 1.0.0** (2025-01-19)
-- Initial release
-- Focus on Kafka 3.9.0 with KRaft mode
-- Comprehensive production deployment guide
-- Security, monitoring, and DR procedures
-
----
-
-**Maintained by:** [Sagar Malla]  
-**Last Updated:** 2025-01-19  
-**Kafka Version:** 3.9.0  
-**Status:** Production Ready
+*Guide based on production deployment of Apache Kafka 4.1.2 KRaft cluster on Oracle Linux 9, 8-core / 16 GB nodes. All configurations verified against running cluster.*
