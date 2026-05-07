@@ -2,17 +2,51 @@
 
 AKHQ is a lightweight, open-source web interface for managing and monitoring Apache Kafka clusters. It allows users to easily browse topics, inspect partitions and messages, track consumer groups and lag, and produce or consume messages directly from a browser. Designed for simplicity and operational visibility, AKHQ is commonly used by developers and platform engineers as a convenient alternative to command-line tools for debugging, monitoring, and day-to-day Kafka administration.
 
+---
+
 ## Table of Contents
 
-## 1\. Overview
+1. [Overview](#1-overview)
+2. [Prerequisites](#2-prerequisites)
+3. [Install Java 17](#3-install-java-17)
+4. [Download AKHQ](#4-download-akhq)
+5. [Directory Structure](#5-directory-structure)
+6. [Configuration](#6-configuration)
+7. [systemd Service](#7-systemd-service)
+8. [Firewall](#8-firewall)
+9. [RBAC — Users & Groups](#9-rbac--users--groups)
+10. [Group Format — 0.25+ Breaking Change](#10-group-format--025-breaking-change)
+11. [Built-in Roles Reference](#11-built-in-roles-reference)
+12. [Full Production Config](#12-full-production-config)
+13. [Nginx Reverse Proxy](#13-nginx-reverse-proxy)
+14. [Verify & Test](#14-verify--test)
+15. [Useful Commands](#15-useful-commands)
+16. [Troubleshooting](#16-troubleshooting)
+
+---
+
+## 1. Overview
 
 AKHQ (formerly KafkaHQ) is a web UI for managing and monitoring Apache Kafka clusters. It is Kafka API-compatible and works with Redpanda as well.
 
 **This setup covers:**
+- Standalone JAR deployment (no Docker)
+- Multiple Kafka cluster connections
+- Role-Based Access Control (RBAC) with basic auth
+- systemd service management
+- Nginx reverse proxy (optional)
 
 **Environment:**
+| Item | Detail |
+|---|---|
+| OS | Oracle Linux 9 |
+| AKHQ Version | 0.25.0+ |
+| Java | 17 |
+| Kafka Clusters | DR, DC, NDC |
 
-## 2\. Prerequisites
+---
+
+## 2. Prerequisites
 
 Verify Kafka brokers are reachable from the AKHQ host before starting:
 
@@ -22,17 +56,17 @@ for ip in 10.10.20.147 10.10.20.148 10.10.20.149; do
   timeout 3 bash -c "echo > /dev/tcp/$ip/9092" 2>/dev/null \
     && echo "OK" || echo "UNREACHABLE"
 done
-
 ```
 
-## 3\. Install Java 17
+---
+
+## 3. Install Java 17
 
 ### Option A — DNF (recommended if internet available)
 
 ```bash
 sudo dnf install -y java-17-openjdk-headless
 java -version
-
 ```
 
 ### Option B — Manual JDK (offline environments)
@@ -54,10 +88,14 @@ java -version
 # Symlink manually installed JDK to system PATH
 sudo ln -s /opt/jdk-17.0.19/bin/java /usr/bin/java
 java -version
-
 ```
 
-## 4\. Download AKHQ
+> **Important:** systemd does NOT source `~/.bash_profile`, `~/.bashrc`, or `/etc/profile.d/`.
+> Always use the **full binary path** in the service file or create a symlink under `/usr/bin/`.
+
+---
+
+## 4. Download AKHQ
 
 ```bash
 AKHQ_VERSION=0.25.1
@@ -68,10 +106,11 @@ sudo curl -L \
   -o /opt/akhq/akhq.jar
 
 ls -lh /opt/akhq/akhq.jar
-
 ```
 
-## 5\. Directory Structure
+---
+
+## 5. Directory Structure
 
 ```
 /opt/akhq/
@@ -82,7 +121,6 @@ ls -lh /opt/akhq/akhq.jar
 
 /etc/systemd/system/
 └── akhq.service           # systemd service unit
-
 ```
 
 Create directories and set ownership:
@@ -91,10 +129,11 @@ Create directories and set ownership:
 sudo mkdir -p /opt/akhq /etc/akhq
 sudo useradd -r -s /sbin/nologin -d /opt/akhq akhq
 sudo chown -R akhq:akhq /opt/akhq /etc/akhq
-
 ```
 
-## 6\. Configuration
+---
+
+## 6. Configuration
 
 Minimal config to get started (no auth):
 
@@ -109,10 +148,11 @@ akhq:
 micronaut:
   server:
     port: 8080
-
 ```
 
-## 7\. systemd Service
+---
+
+## 7. systemd Service
 
 ```bash
 sudo tee /etc/systemd/system/akhq.service > /dev/null <<'EOF'
@@ -140,20 +180,27 @@ EOF
 sudo systemctl daemon-reload
 sudo systemctl enable --now akhq
 sudo systemctl status akhq
-
 ```
 
-## 8\. Firewall
+> If Java was installed via DNF, replace `ExecStart` with:
+> ```
+> ExecStart=/usr/bin/java -jar /opt/akhq/akhq.jar
+> ```
+
+---
+
+## 8. Firewall
 
 ```bash
 sudo firewall-cmd --permanent --add-port=8080/tcp
 sudo firewall-cmd --reload
-
 ```
 
 Access UI at: `http://<server-ip>:8080`
 
-## 9\. RBAC — Users & Groups
+---
+
+## 9. RBAC — Users & Groups
 
 ### Generate password hash
 
@@ -161,17 +208,20 @@ AKHQ uses SHA256 hashed passwords:
 
 ```bash
 echo -n "your_password_here" | sha256sum | awk '{print $1}'
-
 ```
 
 ### Generate JWT secret
 
 ```bash
 cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 48 | head -n 1
-
 ```
 
-## 10\. Group Format — 0.25+ Breaking Change
+---
+
+## 10. Group Format — 0.25+ Breaking Change
+
+> **Critical:** AKHQ 0.25.0 introduced a breaking change to group management.
+> The old `roles:` list format silently fails. You must use the new format.
 
 ### Old format (0.24.x) — DO NOT USE
 
@@ -184,7 +234,6 @@ groups:
       - topic/data/read
     attributes:
       topics-filter-regexp: ".*"
-
 ```
 
 ### New format (0.25+) — USE THIS
@@ -196,16 +245,54 @@ groups:
     - role: reader          # references a built-in or custom role name
       patterns: [ ".*" ]    # resource name patterns (regex)
       clusters: [ ".*" ]    # cluster name patterns (regex)
-
 ```
 
 ### Three built-in groups (no definition needed)
 
-## 11\. Built-in Roles Reference
+| Group | Access |
+|---|---|
+| `admin` | Full access to everything, no restrictions |
+| `reader` | Read-only access to all resources |
+| `no-roles` | No access, forces login |
+
+---
+
+## 11. Built-in Roles Reference
+
+| Role | Resources | Actions |
+|---|---|---|
+| `admin` | All | All |
+| `reader` | All | READ only |
+| `topic-reader` | TOPIC, TOPIC_DATA | READ |
+| `topic-admin` | TOPIC, TOPIC_DATA | READ, CREATE, UPDATE, DELETE |
+| `node-reader` | NODE | READ, READ_CONFIG |
+| `group-reader` | CONSUMER_GROUP | READ |
+| `group-admin` | CONSUMER_GROUP | READ, UPDATE_OFFSET, DELETE, DELETE_OFFSET |
+| `registry-reader` | SCHEMA | READ |
+| `registry-admin` | SCHEMA | READ, CREATE, UPDATE, DELETE, DELETE_VERSION |
+| `connect-reader` | CONNECT_CLUSTER, CONNECTOR | READ |
+| `connect-admin` | CONNECTOR | READ, CREATE, UPDATE, DELETE, UPDATE_STATE |
+| `acl-reader` | ACL | READ |
 
 ### Resource & Action matrix
 
-## 12\. Full Production Config
+| Action | TOPIC | TOPIC_DATA | CONSUMER_GROUP | CONNECTOR | SCHEMA | NODE | ACL | KSQLDB |
+|---|---|---|---|---|---|---|---|---|
+| READ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| CREATE | ✅ | ✅ | | ✅ | ✅ | | | |
+| UPDATE | ✅ | ✅ | | ✅ | ✅ | | | |
+| DELETE | ✅ | ✅ | ✅ | ✅ | ✅ | | | |
+| UPDATE_OFFSET | | | ✅ | | | | | |
+| DELETE_OFFSET | | | ✅ | | | | | |
+| READ_CONFIG | ✅ | | | | | ✅ | | |
+| ALTER_CONFIG | ✅ | | | | | ✅ | | |
+| DELETE_VERSION | | | | | ✅ | | | |
+| UPDATE_STATE | | | | ✅ | | | | |
+| EXECUTE | | | | | | | | ✅ |
+
+---
+
+## 12. Full Production Config
 
 ```bash
 # Step 1 — Generate credentials
@@ -216,7 +303,6 @@ JWT_SECRET=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 48 | head -n 1)
 echo "Admin hash : $ADMIN_HASH"
 echo "SRE hash   : $SRE_HASH"
 echo "JWT secret : $JWT_SECRET"
-
 ```
 
 ```bash
@@ -287,7 +373,6 @@ micronaut:
   server:
     port: 8080
 EOF
-
 ```
 
 ```bash
@@ -297,7 +382,6 @@ python3 -c "import yaml; yaml.safe_load(open('/etc/akhq/application.yml')); prin
 # Step 4 — Restart
 sudo systemctl restart akhq
 journalctl -u akhq -f
-
 ```
 
 ### Adding more users
@@ -306,7 +390,6 @@ journalctl -u akhq -f
 # Generate hash
 NEW_HASH=$(echo -n 'password' | sha256sum | awk '{print $1}')
 echo $NEW_HASH
-
 ```
 
 Add under `basic-auth:` in the config:
@@ -317,7 +400,6 @@ Add under `basic-auth:` in the config:
   passwordHash: SHA256
   groups:
     - reader                 # or admin, or a custom group
-
 ```
 
 Then restart: `sudo systemctl restart akhq`
@@ -330,7 +412,6 @@ groups:
     - role: reader
       patterns: [ "^payment-.*" ]    # only topics starting with payment-
       clusters: [ ".*" ]
-
 ```
 
 Assign to a user:
@@ -341,12 +422,19 @@ Assign to a user:
   passwordHash: SHA256
   groups:
     - payments-reader
-
 ```
 
 ### User permissions summary
 
-## 13\. Nginx Reverse Proxy
+| User | Group | View Topics | Browse Messages | Publish | Delete | Reset Offsets | Scope |
+|---|---|---|---|---|---|---|---|
+| `admin` | admin | ✅ | ✅ | ✅ | ✅ | ✅ | All |
+| `sre` | reader | ✅ | ✅ | ❌ | ❌ | ❌ | All |
+| `payments-dev` | payments-reader | ✅ | ✅ | ❌ | ❌ | ❌ | `payment-.*` only |
+
+---
+
+## 13. Nginx Reverse Proxy
 
 Recommended for production — avoids exposing port 8080 directly.
 
@@ -374,16 +462,16 @@ server {
 EOF
 
 sudo nginx -t && sudo systemctl reload nginx
-
 ```
 
-## 14\. Verify & Test
+---
+
+## 14. Verify & Test
 
 ### Check AKHQ is listening
 
 ```bash
 ss -tlnp | grep 8080
-
 ```
 
 ### Test login via curl
@@ -397,7 +485,6 @@ curl -s -c /tmp/akhq.txt \
 
 # Check roles returned for the session
 curl -s -b /tmp/akhq.txt http://localhost:8080/api/me | python3 -m json.tool
-
 ```
 
 A working response looks like:
@@ -415,7 +502,6 @@ A working response looks like:
         }
     ]
 }
-
 ```
 
 If `roles` is missing from the response, the group is not resolving — see Troubleshooting.
@@ -430,10 +516,11 @@ for ip in 10.10.20.147 10.10.20.148 10.10.20.149 \
   timeout 3 bash -c "echo > /dev/tcp/$ip/9092" 2>/dev/null \
     && echo "REACHABLE" || echo "UNREACHABLE"
 done
-
 ```
 
-## 15\. Useful Commands
+---
+
+## 15. Useful Commands
 
 ```bash
 # Service management
@@ -456,9 +543,31 @@ echo -n "newpassword" | sha256sum | awk '{print $1}'
 
 # Generate a new JWT secret
 cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 48 | head -n 1
-
 ```
 
-## 16\. Troubleshooting
+---
+
+## 16. Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `Failed to locate executable /usr/bin/java` | Java not in system PATH for systemd | Use full path in `ExecStart` or `sudo ln -s /root/.jdk17/bin/java /usr/bin/java` |
+| `POST /login` returns 404 | `micronaut.security` block missing | Add the full `micronaut.security` section to config |
+| Login fails with correct password | SHA256 hash mismatch | Regenerate: `echo -n 'pass' \| sha256sum \| awk '{print $1}'` |
+| User logged in but no roles assigned | Using old 0.24.x group format in 0.25+ | Rewrite groups using new `- role: / patterns: / clusters:` format |
+| `roles` missing from `/api/me` response | `groups:` block nested under `security:` | Move `groups:` to be a sibling of `security:` under `akhq:` |
+| Scoped user sees all topics | Regex not anchored | Use `^payment-.*` instead of `payment-.*` |
+| AKHQ starts but Kafka topics don't load | Brokers unreachable | Run broker connectivity check |
+| Config changes not applied | Service not restarted | `sudo systemctl restart akhq` |
+| UI stuck on login page after login | JWT secret not set | Add `micronaut.security.token.jwt.signatures.secret.generator.secret` |
+
+---
 
 ## Notes
+
+- **AKHQ 0.25.0+** introduced a breaking change to group definitions. The old `roles:` list format under groups silently fails for non-admin users.
+- The built-in `admin` group always works regardless of format — this is why admin works but custom groups fail.
+- Always run `python3 -c "import yaml..."` to validate YAML before restarting the service.
+- The JWT secret **must** be set when using groups — without it, role restrictions are UI-only and not enforced by the API.
+
+---
