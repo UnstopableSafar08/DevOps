@@ -1,4 +1,4 @@
-# Apache Kafka 4.x KRaft Cluster — Production Setup Guide
+<img width="1142" height="325" alt="image" src="https://github.com/user-attachments/assets/6d2d01f6-8128-47d1-ab72-10081903b889" /># Apache Kafka 4.x KRaft Cluster — Production Setup Guide
 
 > **Environment:** 3-node combined broker+controller cluster  
 > **Kafka:** 4.1.2 | **Java:** BellSoft Liberica JDK 21 (LTS) | **OS:** Oracle Linux 9 / RHEL 9  
@@ -38,7 +38,7 @@ Apache Kafka is a distributed event streaming platform designed for high-through
 - **Availability**: High availability and fault tolerance
 - **Performance**: Optimized throughput and latency
 - **Security**: Authentication, authorization, and encryption
-- **Operability**: Monitoring, maintenance, and troubleshooting
+- **Operability**: <a href="https://github.com/UnstopableSafar08/DevOps/blob/main/kafka/readme-old.md#monitoring-and-observability" Monitoring</a>, maintenance, and troubleshooting
 
 Prior to Kafka 3.3, every cluster required a separate Apache ZooKeeper ensemble for metadata management. **KRaft** (Kafka Raft) is Kafka's built-in consensus mechanism that replaces ZooKeeper entirely. As of Kafka 4.0, ZooKeeper support is completely removed — all clusters run KRaft exclusively.
 
