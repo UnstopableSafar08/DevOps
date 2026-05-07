@@ -30,7 +30,7 @@
 
 ## 1. Architecture Overview
 
-### What is KRaft?
+### What is Kafka?
 
 Apache Kafka is a distributed event streaming platform designed for high-throughput, fault-tolerant, and scalable data pipelines. This guide covers production deployment with emphasis on:
 
