@@ -1,4 +1,4 @@
-<img width="1142" height="325" alt="image" src="https://github.com/user-attachments/assets/6d2d01f6-8128-47d1-ab72-10081903b889" /># Apache Kafka 4.x KRaft Cluster — Production Setup Guide
+# Apache Kafka 4.x KRaft Cluster — Production Setup Guide
 
 > **Environment:** 3-node combined broker+controller cluster  
 > **Kafka:** 4.1.2 | **Java:** BellSoft Liberica JDK 21 (LTS) | **OS:** Oracle Linux 9 / RHEL 9  
