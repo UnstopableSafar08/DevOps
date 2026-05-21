@@ -179,6 +179,8 @@ sh """
 
 A Python script at `/opt/generate-report.py` reads `vuln-report.json` and renders a styled HTML report saved as `vuln-report.html`. The script must be pre-deployed to `/opt/` on the Jenkins agent.
 
+`generate-report.py` download link [Download-generate-report.py](https://github.com/UnstopableSafar08/DevOps/blob/main/jenkins/report-generator/generate-report.py)
+
 ```groovy
 sh """
     python3 /opt/generate-report.py
