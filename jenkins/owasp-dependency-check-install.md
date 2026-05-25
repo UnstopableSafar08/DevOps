@@ -22,7 +22,7 @@
 
 ## 3. Jenkins Integration
 
-### Option A: Jenkins Plugin
+### Setup Jenkins Plugin
 
 Install **OWASP Dependency-Check Plugin**.
 
@@ -30,7 +30,7 @@ Go To `Manage Jenkins` > `Global Tool Configurations` > `Dependency-Check instal
 
 Configure: - Name: `dc` - Path: `/opt/owasp/dependency-check-latest`
 
-### Option B: Jenkinsfile (CLI)
+### Jenkinsfile (CLI)
 ```bash
         stage('OWASP Dependency-Check') {
             steps {
@@ -52,7 +52,7 @@ Configure: - Name: `dc` - Path: `/opt/owasp/dependency-check-latest`
 ```
 
 
-Example-2; This will required a `HTML Publisher`.
+Example-2; This will required a `HTML Publisher` plugin.
 ```bash
 stage('Dependency Scan') {
             steps {
