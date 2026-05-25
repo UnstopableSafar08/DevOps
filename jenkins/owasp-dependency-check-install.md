@@ -26,27 +26,54 @@
 
 Install **OWASP Dependency-Check Plugin**.
 
-Configure: - Name: `DC` - Path: `/opt/owasp/dependency-check-latest`
+Go To `Manage Jenkins` > `Global Tool Configurations` > `Dependency-Check installations`
+
+Configure: - Name: `dc` - Path: `/opt/owasp/dependency-check-latest`
 
 ### Option B: Jenkinsfile (CLI)
-
-    stage('OWASP Scan') {
-        steps {
-            sh '''
-                dependency-check               --project "MyProject"               --scan .               --format HTML               --out owasp-report
-            '''
+```bash
+        stage('OWASP Dependency-Check') {
+            steps {
+                // Generate XML (for publisher + python) AND original HTML report
+                dependencyCheck(
+                    additionalArguments: '''--scan . \
+                        --format XML \
+                        --format HTML \
+                        --out . \
+                        --project ExampleProject''',
+                    odcInstallation: 'dc'
+                )
+                // Publish using XML (unchanged name)
+                dependencyCheckPublisher(
+                    pattern: 'dependency-check-report.xml'
+                )
+            }
         }
+```
 
-        post {
-            always {
-                publishHTML([
+
+Example-2; This will required a `HTML Publisher`.
+```bash
+stage('Dependency Scan') {
+            steps {
+                dependencyCheck additionalArguments: '''
+                    --project "ExampleProject"
+                    --scan .
+                    --format HTML
+                    --out owasp-report
+                ''', odcInstallation: 'dc'
+
+                publishHTML(target: [
+                    allowMissing: true,
+                    alwaysLinkToLastBuild: true,
+                    keepAll: true,
                     reportDir: 'owasp-report',
                     reportFiles: 'dependency-check-report.html',
-                    reportName: 'OWASP Vulnerability Report'
+                    reportName: 'OWASP Dependency Check Report'
                 ])
             }
         }
-    }
+```
 
 ## 4. Freestyle Job
 
