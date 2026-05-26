@@ -205,8 +205,8 @@ regexes = [
 # Example: detect internal API tokens
 [[rules]]
 id = "internal-api-token"
-description = "Internal sagar API Token"
-regex = '''sagar[-_]?token[-_]?[a-zA-Z0-9]{32}'''
+description = "Internal test API Token"
+regex = '''test[-_]?token[-_]?[a-zA-Z0-9]{32}'''
 tags = ["internal", "api"]
 ```
 
@@ -626,6 +626,6 @@ cat gitleaks-report.json | python3 -m json.tool | grep RuleID | wc -l
 
 ---
 
-*Guide maintained by: sagar DevOps Team*
+*Guide maintained by: DevOps Team*
 *Tools: Gitleaks v8.30.1 | TruffleHog v3.95.3*
 *Platform: RHEL 9 | Jenkins*
