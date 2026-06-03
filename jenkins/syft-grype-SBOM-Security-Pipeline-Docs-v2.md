@@ -452,6 +452,7 @@ The `System.setProperty` call is not persistent. To make it permanent, add the J
 #   Debian:    /etc/default/jenkins
 
 # Add to JENKINS_JAVA_OPTIONS:
+# Best Approach: Add on the jenkins service file.
 JENKINS_JAVA_OPTIONS="-Dhudson.model.DirectoryBrowserSupport.CSP=\
   default-src 'self' 'unsafe-inline' 'unsafe-eval'; img-src 'self' data:;"
 ```
