@@ -1,5 +1,7 @@
 # OWASP Dependency-Check Installation & Jenkins Integration (RHEL 9.6)
 
+> [OWASP_ORIGINAL_LINK](https://github.com/dependency-check/DependencyCheck/releases/tag/v12.2.2)
+
 ## 1. Install OWASP Dependency-Check
 
     mkdir -p /opt/owasp
