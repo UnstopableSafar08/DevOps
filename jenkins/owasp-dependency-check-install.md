@@ -9,9 +9,9 @@
 
     dnf install -y wget unzip java-17-openjdk
 
-    wget https://github.com/jeremylong/DependencyCheck/releases/latest/download/dependency-check.zip
+    wget wget https://github.com/jeremylong/DependencyCheck/releases/download/v12.1.0/dependency-check-12.1.0-release.zip
 
-    unzip dependency-check.zip
+    unzip dependency-check*.zip
     mv dependency-check dependency-check-latest
 
     chown -R jenkin:jenkin /opt/owasp
