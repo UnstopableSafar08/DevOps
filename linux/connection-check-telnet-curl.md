@@ -321,7 +321,7 @@ main
 ```
 
 
-## Dummy output — `--help`
+## Dummy output `--help`
 
 ```
 $ ./net_check.sh --help
