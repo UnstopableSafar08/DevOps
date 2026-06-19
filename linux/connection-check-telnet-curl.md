@@ -17,6 +17,8 @@ Create a new file `net_check.sh` (update as per yours) and paste the below conte
 
 ```bash
 #!/usr/bin/env bash
+# Author : Sagar Malla
+# Updated on : 19th-Jun-2026
 # Net check tool: telnet or curl a domain, colored msgs, logs to /tmp
 
 set -uo pipefail
