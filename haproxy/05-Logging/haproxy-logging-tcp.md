@@ -1,7 +1,7 @@
 # HAProxy Logging — TCP
 
-**Environment:** HAProxy 2.8.14 on Oracle Linux 9.7  
-**Transport:** TCP (`tcp@127.0.0.1:514`)  
+**Environment:** HAProxy 2.8.14 on Oracle Linux 9.7 / 9.8
+**Transport:** TCP (`tcp@127.0.0.1:514`)
 **Recommended for:** Remote central syslog with guaranteed delivery
 
 ---
@@ -10,7 +10,7 @@
 
 TCP syslog uses a persistent connection between HAProxy and rsyslog. Unlike UDP, TCP is connection-based — lost connections are detected and retried, making it suitable when log delivery guarantee matters. Most commonly used when shipping logs to a remote syslog server (Graylog, ELK, Loki, etc.).
 
-When `chroot` is enabled, HAProxy connects outbound to `127.0.0.1:514` via TCP. Since TCP uses the network stack (not a socket file), chroot does **not** block TCP connections — no extra configuration needed inside the jail for transport. However, rsyslog still runs outside the jail and writes logs to disk normally.
+When `chroot` is enabled, HAProxy connects outbound to `127.0.0.1:514` via TCP. Since TCP uses the network stack (not a socket file), chroot does **not** block TCP connections — no extra socket configuration needed inside the jail.
 
 ---
 
@@ -33,11 +33,10 @@ Remote syslog (optional)
 ## Step 1 — Prepare Directories
 
 ```bash
-# Create log output directory
 mkdir -p /var/log/haproxy
 ```
 
-No chroot socket setup required for TCP — network stack is accessible from inside the jail.
+No chroot socket setup required — TCP uses the network stack, accessible from inside the jail.
 
 ---
 
@@ -82,15 +81,15 @@ module(load="imtcp")
 input(type="imtcp" port="514")
 
 local0.*    /var/log/haproxy/access.log
+& stop
 local1.*    /var/log/haproxy/notice.log
-
 & stop
 EOF
 ```
 
-`module(load="imtcp")` — loads TCP input module (not loaded by default).  
-`input(type="imtcp" port="514")` — binds rsyslog to TCP port 514.  
-`& stop` — prevents HAProxy logs from also polluting `/var/log/messages`.
+`module(load="imtcp")` — loads TCP input module (not loaded by default).
+`input(type="imtcp" port="514")` — binds rsyslog to TCP port 514.
+`& stop` after each rule — prevents log bleed into `/var/log/messages`. A single `& stop` at the end only stops the last matched facility — `local0` would still leak without its own stop.
 
 ---
 
@@ -103,58 +102,93 @@ systemctl reload haproxy
 
 ---
 
-## Step 5 — Verify
-
-```bash
-# Confirm rsyslog is listening on TCP 514
-ss -tlnp | grep 514
-
-# Validate HAProxy config
-haproxy -c -f /etc/haproxy/haproxy.cfg
-
-# Test rsyslog receiving local0 via TCP
-logger -p local0.info -T -n 127.0.0.1 -P 514 "haproxy tcp test"
-tail -f /var/log/haproxy/access.log
-
-# Check HAProxy log counter (must be > 0 after traffic)
-echo "show info" | socat stdio /var/run/haproxy.stat | grep CumRecvLogs
-```
-
-Expected output of `ss -tlnp | grep 514`:
-```
-LISTEN  0  128  0.0.0.0:514  0.0.0.0:*  users:(("rsyslogd",...))
-```
-
----
-
-## Step 6 — Logrotate
+## Step 5 — Logrotate
 
 Create `/etc/logrotate.d/haproxy`:
 
 ```
 /var/log/haproxy/*.log {
     daily
-    rotate 14
-    compress
-    delaycompress
+    maxsize 1G
     missingok
+    rotate 20
+    maxage 3
+    compress
     notifempty
+    create 0640 root root
+    sharedscripts
+    dateext
+    dateformat -%Y%m%d-%H%M%S
     postrotate
-        systemctl reload rsyslog > /dev/null 2>&1 || true
+        /usr/bin/systemctl reload rsyslog >/dev/null 2>&1 || true
     endscript
 }
+```
+
+| Directive | Purpose |
+|---|---|
+| `daily` + `maxsize 1G` | Rotate daily, or immediately if file exceeds 1GB |
+| `rotate 20` | Keep max 20 archived files |
+| `maxage 3` | Delete archives older than 3 days |
+| `compress` | gzip rotated files → `.gz` (immediate, no delaycompress) |
+| `sharedscripts` | Run postrotate once for all `*.log` files |
+| `dateext` + `dateformat` | Filename: `access.log-20260623-153748.gz` |
+| `reload rsyslog` | HUP rsyslog — reopens file handles without dropping log pipeline |
+
+---
+
+## Step 6 — Hourly Cron
+
+`logrotate.timer` runs daily and covers ALL configs in `/etc/logrotate.d/`. Do NOT change it to hourly — it would affect `btmp`, `dnf`, `nginx`, `rsyslog`, and other system logs.
+
+Instead, add a dedicated cron for HAProxy only:
+
+```bash
+cat > /etc/cron.d/haproxy-logrotate << 'EOF'
+# Run haproxy logrotate hourly — size/schedule enforced by config
+0 * * * * root /usr/sbin/logrotate /etc/logrotate.d/haproxy
+EOF
+```
+
+Do not use `-f` flag — it forces rotation every hour regardless of file size, bypassing `maxsize` and `daily` thresholds.
+
+---
+
+## Step 7 — Verify
+
+```bash
+# Confirm rsyslog listening on TCP 514
+ss -tlnp | grep 514
+
+# Validate HAProxy config
+haproxy -c -f /etc/haproxy/haproxy.cfg
+
+# Test rsyslog receiving local0
+logger -p local0.info -T -n 127.0.0.1 -P 514 "haproxy tcp test"
+tail -f /var/log/haproxy/access.log
+
+# HAProxy log counter — must be > 0 after traffic
+echo "show info" | socat stdio /var/run/haproxy.stat | grep CumRecvLogs
+
+# Logrotate dry-run
+logrotate -d /etc/logrotate.d/haproxy
+```
+
+Expected `ss` output:
+```
+LISTEN  0  128  0.0.0.0:514  0.0.0.0:*  users:(("rsyslogd",...))
 ```
 
 ---
 
 ## Optional — Forward to Remote Syslog Server
 
-To relay HAProxy logs to a remote central syslog server, append to `/etc/rsyslog.d/haproxy.conf`:
-
 ```
 local0.*    /var/log/haproxy/access.log
+& stop
 local0.*    @@remote-syslog.example.com:514    # @@ = TCP forwarding
 local1.*    /var/log/haproxy/notice.log
+& stop
 ```
 
 Single `@` = UDP forward. Double `@@` = TCP forward.
@@ -179,11 +213,14 @@ Single `@` = UDP forward. Double `@@` = TCP forward.
 | Symptom | Cause | Fix |
 |---|---|---|
 | `CumRecvLogs: 0` | rsyslog not on TCP 514 | Run `ss -tlnp \| grep 514` to confirm listener |
+| `access.log` 0 bytes after rotation | rsyslog not reopening file handle | `systemctl reload rsyslog` |
+| `/var/log/messages` filling disk | `& stop` missing per rule | Add `& stop` after each rsyslog facility rule |
+| No `.gz` on rotated files | `delaycompress` present | Remove `delaycompress` |
 | Log file not created | imtcp module not loaded | Check rsyslog.conf syntax with `rsyslogd -N1` |
 | Connection refused | Port 514 blocked | Check `firewalld` or `iptables` rules |
-| Logs stop after rsyslog restart | TCP connection dropped | HAProxy will reconnect automatically on next log event |
+| Logs stop after rsyslog restart | TCP connection dropped | HAProxy reconnects automatically on next log event |
 | rsyslog not starting | imtcp config syntax error | Run `rsyslogd -N1 -f /etc/rsyslog.conf` |
 
 ---
 
-*HAProxy 2.8.14 — Oracle Linux 9.7 — TCP via rsyslog*
+*HAProxy 2.8.14 — Oracle Linux 9.7/9.8 — TCP via rsyslog 8.2510.0*
