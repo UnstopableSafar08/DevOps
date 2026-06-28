@@ -10,20 +10,22 @@
 ## Table of Contents
 
 1. [Overview](#overview)
-2. [Logging Methods Comparison](#logging-methods-comparison)
-3. [Unix Socket (Recommended)](#unix-socket-recommended)
-4. [TCP Logging](#tcp-logging)
-5. [UDP Logging](#udp-logging)
-6. [Chroot — Why, Pros & Cons](#chroot--why-pros--cons)
-7. [Full HAProxy Configuration](#full-haproxy-configuration)
-8. [rsyslog Configuration](#rsyslog-configuration)
-9. [Logrotate](#logrotate)
-10. [Hourly Rotation — Cron vs systemd Timer](#hourly-rotation--cron-vs-systemd-timer)
-11. [Chroot Socket Persistence](#chroot-socket-persistence)
-12. [Disk Space Management](#disk-space-management)
-13. [Timeout Inheritance](#timeout-inheritance)
-14. [Verification](#verification)
-15. [Troubleshooting](#troubleshooting)
+2. [Version Compatibility](#version-compatibility)
+3. [Logging Methods Comparison](#logging-methods-comparison)
+4. [Unix Socket (Recommended)](#unix-socket-recommended)
+5. [TCP Logging](#tcp-logging)
+6. [UDP Logging](#udp-logging)
+7. [Chroot — Why, Pros & Cons](#chroot--why-pros--cons)
+8. [Full HAProxy Configuration](#full-haproxy-configuration)
+9. [rsyslog Configuration](#rsyslog-configuration)
+10. [Logrotate](#logrotate)
+11. [Hourly Rotation — Cron vs systemd Timer](#hourly-rotation--cron-vs-systemd-timer)
+12. [Chroot Socket Persistence](#chroot-socket-persistence)
+13. [Disk Space Management](#disk-space-management)
+14. [Timeout Inheritance](#timeout-inheritance)
+15. [Verification](#verification)
+16. [Troubleshooting](#troubleshooting)
+17. [References](#references)
 
 ---
 
@@ -36,6 +38,32 @@ HAProxy does not write logs directly to disk. It forwards log entries to a syslo
 - TCP (`tcp@127.0.0.1:514`) — remote syslog, guaranteed delivery
 
 rsyslog then writes to disk. On Oracle Linux 9 (RHEL-family), rsyslog is the default syslog daemon and is fully integrated with systemd.
+
+---
+
+## Version Compatibility
+
+All three logging methods are supported across a wide range of HAProxy versions, but with different minimum requirements:
+
+| Method | Supported Since | Notes |
+|---|---|---|
+| **UDP** `log 127.0.0.1:514` | HAProxy 1.3+ | Default transport — oldest, works on all versions |
+| **Unix socket** `log /dev/log` | HAProxy 1.3+ | Supported since early versions — chroot socket caveat always applies |
+| **TCP** `log tcp@127.0.0.1:514` | HAProxy 2.0+ | `tcp@` prefix introduced in 2.0 — not available on older versions |
+
+**This guide applies to HAProxy 2.0 and above.** For versions older than 2.0, TCP logging is not available — use Unix socket or UDP instead.
+
+> **Note:** Unix socket log buffers are very small by default and can lead to lost messages even at light loads. For high-traffic environments, UDP or TCP transports are more resilient. The chroot socket path requirement (`/var/empty/dev/log`) has always applied when `chroot` is configured.
+
+### Tested Environment
+
+| Component | Version |
+|---|---|
+| HAProxy | 2.8.14 (LTS — supported until Q2 2028) |
+| Oracle Linux | 9.7 / 9.8 |
+| rsyslog | 8.2510.0 |
+| logrotate | 3.18.0 |
+| Kernel | Linux 6.12.0 (UEK) |
 
 ---
 
@@ -514,6 +542,25 @@ cat /var/lib/logrotate/logrotate.status
 | Rotate runs but file unchanged | `-f` flag missing or size not exceeded | Remove `-f`, check file size vs `maxsize` |
 | rsyslog not starting | Syntax error in haproxy.conf | Run `rsyslogd -N1 -f /etc/rsyslog.conf` |
 | HAProxy config invalid | Timeout or mode missing | Run `haproxy -c -f /etc/haproxy/haproxy.cfg` |
+
+---
+
+## References
+
+### Detailed Method Guides
+
+| Method | Guide |
+|---|---|
+| Unix Socket | [haproxy-logging-unix-socket.md](https://github.com/UnstopableSafar08/DevOps/blob/main/haproxy/05-Logging/haproxy-logging-unix-socket.md) |
+| TCP | [haproxy-logging-tcp.md](https://github.com/UnstopableSafar08/DevOps/blob/main/haproxy/05-Logging/haproxy-logging-tcp.md) |
+| UDP | [haproxy-logging-udp.md](https://github.com/UnstopableSafar08/DevOps/blob/main/haproxy/05-Logging/haproxy-logging-udp.md) |
+
+### Official Documentation
+
+- [HAProxy Management Guide](https://docs.haproxy.org/2.8/management.html)
+- [HAProxy Configuration Manual](https://docs.haproxy.org/2.8/configuration.html)
+- [rsyslog Documentation](https://www.rsyslog.com/doc/)
+- [logrotate man page](https://linux.die.net/man/8/logrotate)
 
 ---
 
