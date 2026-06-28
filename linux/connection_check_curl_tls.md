@@ -341,7 +341,7 @@ Failed hops are recorded as `HTTP=000` and are **excluded from timing averages**
 ║           curl TLS + Status Hop Checker             ║
 ╚══════════════════════════════════════════════════════╝
 
-  URL    : https://resources.geniustv.geniussystems.com.np
+  URL    : https://example.com
   Hops   : 100
   Timeout: 15s per hop
   Auth   :
@@ -420,7 +420,7 @@ curl_results_20260625_152230/
 
 ```
 === curl TLS + Status Hop Checker ===
-URL    : https://resources.geniustv.geniussystems.com.np
+URL    : https://example.com
 Hops   : 100
 Started: Wed Jun 25 15:22:30 +0545 2026
 
