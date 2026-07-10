@@ -452,8 +452,8 @@ unclean.leader.election.enable=false
 auto.leader.rebalance.enable=true
 leader.imbalance.check.interval.seconds=300
 
-# No accidental topic creation from application typos
-auto.create.topics.enable=false
+# Accidental topic creation from application typos, set false
+auto.create.topics.enable=true
 
 # Allow topic deletion via admin commands
 delete.topic.enable=true
@@ -501,7 +501,8 @@ request.timeout.ms=30000
 ########################
 
 # 6 partitions default = 2 per node on a 3-broker cluster
-num.partitions=6
+# num.partitions=6
+num.partitions=90
 
 ########################
 # Replication Tuning
