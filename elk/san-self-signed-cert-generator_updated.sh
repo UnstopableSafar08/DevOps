@@ -266,7 +266,6 @@ instances:
       - "$WILDCARD"
       - "$USER_DOMAIN"
       - "localhost"
-      - "ett-elk"
     ip:
       - "$HOST_IP"
 EOF
