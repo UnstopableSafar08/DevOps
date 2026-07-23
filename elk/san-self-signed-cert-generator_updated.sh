@@ -8,6 +8,14 @@
 #   Function-based script to generate CA and SAN certificates
 #   for a user-specified wildcard DNS. Used for Elasticsearch,
 #   Kibana, and Logstash in test/prod environments.
+#
+# FIX (23-JUL-2026): generate_truststore() was importing the
+#   NODE leaf certificate ($USER_DOMAIN.crt) into truststore.p12
+#   instead of the CA certificate (ca_$USER_DOMAIN.crt). This
+#   caused mutual-TLS transport handshakes to fail across nodes
+#   with "SSLHandshakeException: Empty client certificate chain",
+#   since the truststore trusted one specific leaf cert instead of
+#   the CA that signs all node certs. Fixed to import the CA cert.
 # ============================================================
 
 set -euo pipefail
@@ -388,15 +396,20 @@ extract_certs() {
 
 # ─────────────────────────────────────────────
 #  GENERATE TRUSTSTORE
+#  FIX: import the CA cert (ca_$USER_DOMAIN.crt), not the node
+#  leaf cert ($USER_DOMAIN.crt). A truststore must contain the
+#  CA so it can validate any cert signed by that CA — importing
+#  the leaf cert instead breaks mutual-TLS handshakes between
+#  nodes (manifests as "Empty client certificate chain").
 # ─────────────────────────────────────────────
 generate_truststore() {
     log_step "Generating Truststore (truststore.p12)"
 
     log_info "Importing CA cert into truststore via keytool..."
-    log_cmd "keytool -import -alias elastic-ca -file $USER_DOMAIN.crt -keystore truststore.p12"
+    log_cmd "keytool -import -alias ca -file ca_${USER_DOMAIN}.crt -keystore truststore.p12"
 
-    if ! keytool -import -alias elastic-ca \
-            -file "$CERTS_DIR/$USER_DOMAIN.crt" \
+    if ! keytool -import -alias ca \
+            -file "$CERTS_DIR/ca_${USER_DOMAIN}.crt" \
             -keystore "$CERTS_DIR/truststore.p12" \
             -storepass "$RANDOM_PASS" \
             -noprompt 2>&1; then
@@ -628,7 +641,7 @@ print_final_summary() {
     echo -e "    ${GREEN}✔${RESET}  ${USER_DOMAIN}.p12          ${DIM}(Node keystore)${RESET}"
     echo -e "    ${GREEN}✔${RESET}  ${USER_DOMAIN}.crt          ${DIM}(Node certificate PEM)${RESET}"
     echo -e "    ${GREEN}✔${RESET}  ${USER_DOMAIN}.key          ${DIM}(Node private key PEM)${RESET}"
-    echo -e "    ${GREEN}✔${RESET}  truststore.p12          ${DIM}(Truststore)${RESET}"
+    echo -e "    ${GREEN}✔${RESET}  truststore.p12          ${DIM}(Truststore — trusts CA)${RESET}"
     echo ""
     echo -e "  ${YELLOW}⚠  Password stored in: ${BOLD}$(pwd)/pass.txt${RESET}"
     echo -e "  ${YELLOW}⚠  Keep this file secure and do not commit it to version control.${RESET}"
