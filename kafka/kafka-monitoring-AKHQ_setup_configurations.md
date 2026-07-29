@@ -122,7 +122,7 @@ ls -lh /opt/akhq/akhq.jar
 /etc/systemd/system/
 └── akhq.service           # systemd service unit
 
-/opt/akhq/tmp              # systemd service unit
+/opt/akhq/tmp              # Load the default java lib
 ```
 
 Create directories and set ownership:
