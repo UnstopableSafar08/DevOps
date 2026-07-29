@@ -1,6 +1,6 @@
 ### Oracle Linux 9 — Kafka/Redpanda Monitoring UI
 
-AKHQ is a lightweight, open-source web interface for managing and monitoring Apache Kafka clusters. It allows users to easily browse topics, inspect partitions and messages, track consumer groups and lag, and produce or consume messages directly from a browser. Designed for simplicity and operational visibility, AKHQ is commonly used by developers and platform engineers as a convenient alternative to command-line tools for debugging, monitoring, and day-to-day Kafka administration.
+AKHQ - Apache Kafka HeadQuarters (formerly known as KafkaHQ) is a lightweight, open-source web interface for managing and monitoring Apache Kafka clusters. It allows users to easily browse topics, inspect partitions and messages, track consumer groups and lag, and produce or consume messages directly from a browser. Designed for simplicity and operational visibility, AKHQ is commonly used by developers and platform engineers as a convenient alternative to command-line tools for debugging, monitoring, and day-to-day Kafka administration.
 
 ---
 
@@ -121,6 +121,8 @@ ls -lh /opt/akhq/akhq.jar
 
 /etc/systemd/system/
 └── akhq.service           # systemd service unit
+
+/opt/akhq/tmp              # systemd service unit
 ```
 
 Create directories and set ownership:
@@ -129,7 +131,14 @@ Create directories and set ownership:
 sudo mkdir -p /opt/akhq /etc/akhq
 sudo useradd -r -s /sbin/nologin -d /opt/akhq akhq
 sudo chown -R akhq:akhq /opt/akhq /etc/akhq
+
+# Create an alternate executable temp directory
+mkdir -p /opt/akhq/tmp
+chmod 1777 /opt/akhq/tmp
+ls -ld /opt/akhq/tmp
 ```
+
+Note: zstd-jni extracts its native library to Java's temporary directory (/tmp by default). Since /tmp is mounted with noexec, Linux blocks the library from loading, causing AKHQ to fail. Setting -Djava.io.tmpdir=/opt/akhq/tmp tells Java to use another executable temporary directory instead.
 
 ---
 
@@ -165,7 +174,8 @@ Type=simple
 User=root
 Group=root
 Environment="MICRONAUT_CONFIG_FILES=/etc/akhq/application.yml"
-ExecStart=/root/.jdk17/bin/java -jar /opt/akhq/akhq.jar
+Environment="JAVA_TOOL_OPTIONS=-Djava.io.tmpdir=/opt/akhq/tmp"
+ExecStart=/opt/jdk-17.0.19/bin/java -jar /opt/akhq/akhq.jar
 Restart=on-failure
 RestartSec=5
 StartLimitIntervalSec=60
