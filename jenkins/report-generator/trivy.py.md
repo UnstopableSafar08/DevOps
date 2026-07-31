@@ -707,6 +707,14 @@ pipeline {
                     alwaysLinkToLastBuild: true,
                     allowMissing:          true
                 ])
+                publishHTML(target: [
+                    reportDir:             env.WORKSPACE_REPORTS_DIR,
+                    reportFiles:           'trivy-report.html',
+                    reportName:            'Trivy Scan Report',
+                    keepAll:               true,
+                    alwaysLinkToLastBuild: true,
+                    allowMissing:          true
+                ])
             }
         }
 
