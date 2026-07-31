@@ -1,10 +1,14 @@
-### Trivy Scan Report.
+## Trivy Scan Report.
 
 The Trivy Docker image scan stage performs a security assessment of the Docker image built by the Jenkins pipeline. It scans the image for known vulnerabilities in the operating system packages and application dependencies, such as Java, Node.js, Python, or other libraries. Trivy compares the contents of the image against its vulnerability database and identifies issues categorized by severity levels like LOW, MEDIUM, HIGH, and CRITICAL.
 
 During the scan, Trivy generates a JSON report for automated processing and a table-format report that is displayed in the Jenkins console and saved as a text file. Based on the configured SEVERITY_FAIL_ON parameter, the pipeline can be configured to fail automatically if vulnerabilities of the specified severity or higher are detected, preventing insecure images from progressing further in the deployment process.
 
 In the next stage, the generated JSON report is processed by a Python script to create a user-friendly HTML report. This HTML report provides a structured and readable summary of the identified vulnerabilities, making it easier for developers and security teams to review the findings and take appropriate remediation actions.
+
+
+#### OUTPUT
+![report.html](https://github.com/UnstopableSafar08/DevOps/blob/main/jenkins/images/trivy-report.html.png)
 
 > `trivy.py` File's contents.
 
