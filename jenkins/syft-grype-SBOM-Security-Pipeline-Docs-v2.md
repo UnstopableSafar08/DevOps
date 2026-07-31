@@ -88,6 +88,13 @@ which grype && grype version
 
 ## 3. Jenkins Pipeline Stages
 
+### Dummy Outputs:
+![vuln.report.html](https://github.com/UnstopableSafar08/DevOps/blob/main/jenkins/images/vuln-report.html.png)  <br>
+![trivy-report.html](https://github.com/UnstopableSafar08/DevOps/blob/main/jenkins/images/trivy-report.html.png)  <br>
+![owasp-report.html](https://github.com/UnstopableSafar08/DevOps/blob/main/jenkins/images/owasp-report.html.png)
+
+
+
 The pipeline executes the following stages in sequence.
 
 | # | Stage | Purpose |
