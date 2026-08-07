@@ -50,7 +50,10 @@ global
     stats socket    /var/run/haproxy.stat mode 600 level admin
     log             /dev/log local0
     log             /dev/log local1 notice
-    chroot          /var/empty
+
+    # chroot; This is optional, use accordingly. Does not work on haproxy v3.4.3 
+    chroot          /var/empty 
+
     pidfile         /var/run/haproxy.pid
     user            haproxy
     group           haproxy
