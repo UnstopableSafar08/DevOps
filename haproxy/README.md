@@ -17,7 +17,8 @@
 6. [Linux Kernel & Limit Tuning](#6-linux-kernel--limit-tuning)
 7. [Deploy and Verify](#7-deploy-and-verify)
 8. [Why Each Setting Is There](#8-why-each-setting-is-there)
-9. [Complete Uninstall Process](#9-complete-uninstall-process)
+9. [Prometheus Metrics Exporter](#9-prometheus-metrics-exporter)
+10. [Complete Uninstall Process](#10-complete-uninstall-process)
 
 ---
 
@@ -44,7 +45,8 @@ sudo make -j$(nproc) TARGET=linux-glibc \
     USE_PCRE2=1 \
     USE_PCRE2_JIT=1 \
     USE_ZLIB=1 \
-    USE_SYSTEMD=1
+    USE_SYSTEMD=1 \
+    USE_PROMEX=1
 
 sudo make install PREFIX=/usr/local
 sudo ln -sf /usr/local/sbin/haproxy /usr/sbin/haproxy
@@ -52,13 +54,17 @@ sudo ln -sf /usr/local/sbin/haproxy /usr/sbin/haproxy
 haproxy -v
 ```
 
+`USE_PROMEX=1` builds in the native Prometheus metrics exporter module. Confirm it's present in this build:
+```bash
+haproxy -vv | grep -i promex
+```
+Should show `+PROMEX`. If it shows `-PROMEX`, the module wasn't compiled in — see [Section 9](#9-prometheus-metrics-exporter) for how to add it without a full rebuild.
+
 Create the service account and config directory:
 
 ```bash
 sudo useradd -r -M -s /sbin/nologin haproxy 2>/dev/null || true
 sudo mkdir -p /etc/haproxy
-sudo mkdir -p /run/haproxy
-chown -R  /etc/haproxy /run/haproxy
 ```
 
 ---
