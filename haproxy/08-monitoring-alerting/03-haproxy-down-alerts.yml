@@ -1,0 +1,32 @@
+# /etc/prometheus/rules/haproxy-down-alerts.yml
+
+groups:
+  - name: haproxy-down-alerts
+    rules:
+
+      - alert: HAProxyServerDown
+        expr: haproxy_server_status{state="DOWN"} == 1
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Server {{ $labels.server }} in backend {{ $labels.proxy }} is DOWN"
+          description: "Health check failing 30s+ for {{ $labels.server }} ({{ $labels.proxy }})."
+
+      - alert: HAProxyBackendNoActiveServers
+        expr: haproxy_backend_active_servers == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Backend {{ $labels.proxy }} has ZERO active servers — total outage"
+          description: "No server in {{ $labels.proxy }} can serve traffic."
+
+      - alert: HAProxyProcessDown
+        expr: up{job="haproxy"} == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus can't scrape HAProxy on {{ $labels.instance }}"
+          description: "Either HAProxy is down, or the exporter frontend (8404) is unreachable. This is different from a backend-server alert — this means the whole LB may be gone."

@@ -1,0 +1,11 @@
+sudo sed -i '/create 0640 root grok_exporter/d' /etc/haproxy/haproxy.cfg
+sudo haproxy -c -f /etc/haproxy/haproxy.cfg
+sudo chgrp grok_exporter /var/log/haproxy/access.log
+sudo chmod 640 /var/log/haproxy/access.log
+sudo usermod -aG grok_exporter grok_exporter
+sudo vi /etc/logrotate.d/haproxy   # add: create 0640 root grok_exporter
+sudo systemctl reload haproxy
+sudo -u grok_exporter /opt/grok_exporter/grok_exporter -config /opt/grok_exporter/config.yml &
+sleep 5
+curl -s localhost:9144/metrics | grep haproxy_uri | wc -l
+kill %1

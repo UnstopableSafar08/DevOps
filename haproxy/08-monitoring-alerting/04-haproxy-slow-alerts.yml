@@ -1,0 +1,42 @@
+# /etc/prometheus/rules/haproxy-slow-alerts.yml
+#
+# Note on precision: haproxy_*_response_time_average_seconds is a running
+# AVERAGE HAProxy itself computes, not a percentile — Prometheus can't derive
+# p95/p99 from it since it's not a histogram. Good enough to catch "this
+# backend has gotten slow," not precise enough to catch one-off spikes on
+# an otherwise-fast backend. If you need real percentiles later, that's the
+# grok_exporter (Part C) with a histogram metric type, not this.
+
+groups:
+  - name: haproxy-slow-alerts
+    rules:
+
+      - alert: HAProxyBackendSlowResponse
+        expr: haproxy_backend_response_time_average_seconds > 2
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Backend {{ $labels.proxy }} average response time > 2s"
+          description: "Currently {{ $value }}s average over the last sample. Sustained 1m+."
+
+      - alert: HAProxyServerSlowResponse
+        expr: haproxy_server_response_time_average_seconds > 2
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Server {{ $labels.server }} ({{ $labels.proxy }}) average response time > 2s"
+          description: "Currently {{ $value }}s. Sustained 1m+."
+
+      - alert: HAProxyBackendQueueBuildup
+        expr: haproxy_backend_current_queue > 20
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Backend {{ $labels.proxy }} has {{ $value }} requests queued"
+          description: "All servers may show UP while queue grows — this is often the earlier signal before a server actually falls over. Investigate before it becomes a DOWN alert."
+
+# Tune the `> 2` (seconds) and `> 20` (queue depth) thresholds to your
+# actual traffic profile — these are starting points, not universal values.

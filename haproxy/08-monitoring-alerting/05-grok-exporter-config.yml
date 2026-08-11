@@ -1,0 +1,76 @@
+# grok_exporter config.yml
+# Run: ./grok_exporter -config config.yml
+# Exposes on :9144/metrics — matches job 'haproxy-uri' in Part B.
+#
+# Get grok_exporter: https://github.com/fstab/grok_exporter (download prebuilt
+# binary from releases page — building from source needs Oniguruma headers).
+
+global:
+    config_version: 2
+
+input:
+    type: file
+    path: /var/log/haproxy/access.log   # confirmed path on this host — /etc/rsyslog.d/haproxy.conf routes local0.* here
+    readall: false           # false = tail from end (like tail -f), don't reprocess old lines on restart
+    fail_on_missing_logfile: false
+
+grok:
+    patterns_dir: ./patterns
+    additional_patterns:
+        # (?!stats\b) excludes lines where the frontend name is literally "stats" —
+        # confirmed against a real access.log line from this host: your health-check/
+        # admin-stats polling hits the `stats` frontend constantly and would otherwise
+        # flood the per-URI dashboard with a fake "backend" that isn't real traffic.
+        # If your stats frontend has a different name, change "stats" here to match.
+        - 'HAPROXY_LOG %{SYSLOGTIMESTAMP:timestamp} %{HOSTNAME:host} haproxy\[%{NUMBER:pid}\]: %{IP:client_ip}:%{NUMBER:client_port} \[%{HTTPDATE:accept_date}\] (?!stats\b)%{WORD:frontend} %{NOTSPACE:backend_server} %{NUMBER:Tq}/%{NUMBER:Tw}/%{NUMBER:Tc}/%{NUMBER:Tr}/%{NUMBER:Tt} %{NUMBER:status} %{NUMBER:bytes} %{DATA:captured_req_cookie} %{DATA:captured_res_cookie} %{DATA:termination_state} %{DATA:actconn}/%{DATA:feconn}/%{DATA:beconn}/%{DATA:srvconn}/%{DATA:retries} %{DATA:srv_queue}/%{DATA:backend_queue} "%{WORD:method} %{URIPATHPARAM:request_path} HTTP/%{NUMBER:http_version}"'
+        - 'HTTPDATE %{MONTHDAY}/%{MONTH}/%{YEAR}:%{TIME}'
+        - "URIPATHPARAM %{URIPATH}(?:\\?%{URIPARAM})?"
+        - "URIPATH [A-Za-z0-9\\-._~!$&'()*+,;=:@/]+"
+        - "URIPARAM [A-Za-z0-9\\-._~!$&'()*+,;=:@/?%]*"
+
+metrics:
+
+    - type: counter
+      name: haproxy_uri_requests_total
+      help: Total requests per URI path, method, and status code
+      match: '%{HAPROXY_LOG}'
+      labels:
+          path: '{{.request_path}}'
+          method: '{{.method}}'
+          status: '{{.status}}'
+          backend: '{{.backend_server}}'
+
+    # haproxy_uri_errors_total removed — it duplicated haproxy_uri_requests_total
+    # and had an invalid field combination for a counter: `cumulative: true` is
+    # only a documented field on `gauge` metrics, not `counter` (confirmed
+    # against grok_exporter's own CONFIG.md — counters DO support `value:`,
+    # that part alone wasn't the problem). Get the same 4xx/5xx breakdown from
+    # the existing haproxy_uri_requests_total metric by filtering its `status`
+    # label in PromQL instead, e.g.:
+    #   sum by (path) (rate(haproxy_uri_requests_total{status=~"4..|5.."}[5m]))
+    # This is exactly what the Grafana dashboard's "Top URIs by Error Rate"
+    # panel already does — no separate metric needed.
+
+    - type: histogram
+      name: haproxy_uri_response_time_seconds
+      help: Response time (Tt, total time) per URI, as a real histogram — this is
+            what gets you actual percentiles (p50/p95/p99), unlike the native
+            HAProxy average-only metrics.
+      match: '%{HAPROXY_LOG}'
+      value: '{{divide .Tt 1000}}'   # Tt is in ms in the log; convert to seconds
+      buckets: [0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10]
+      labels:
+          path: '{{.request_path}}'
+          backend: '{{.backend_server}}'
+
+server:
+    protocol: http
+    port: 9144
+
+# CARDINALITY WARNING: if request_path includes IDs (/user/12345, /order/98721),
+# every unique ID becomes its own Prometheus time series — this explodes label
+# cardinality and will hurt Prometheus performance over time. Before running
+# this in production, normalize dynamic segments in the regex or with a
+# post-processing rule, e.g. /user/12345 -> /user/:id. A simple starting
+# approach: add a second grok pattern that replaces \d+ segments with :id
+# before assigning to request_path.

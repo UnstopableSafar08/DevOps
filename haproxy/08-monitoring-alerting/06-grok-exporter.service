@@ -1,0 +1,15 @@
+[Unit]
+Description=grok_exporter - HAProxy per-URI metrics from access log
+After=network.target haproxy.service rsyslog.service
+Wants=haproxy.service
+
+[Service]
+Type=simple
+User=grok_exporter
+WorkingDirectory=/opt/grok_exporter
+ExecStart=/opt/grok_exporter/grok_exporter -config /opt/grok_exporter/config.yml
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

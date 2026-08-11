@@ -1,0 +1,22 @@
+# --- Add to /etc/prometheus/prometheus.yml scrape_configs: ---
+
+scrape_configs:
+
+  - job_name: 'haproxy'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['<HAPROXY_HOST>:8404']       # native frontend/backend/server metrics
+
+  - job_name: 'haproxy-uri'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['<HAPROXY_HOST>:9144']       # grok_exporter — per-URI metrics, see Part C
+
+rule_files:
+  - /etc/prometheus/rules/haproxy-down-alerts.yml
+  - /etc/prometheus/rules/haproxy-slow-alerts.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['localhost:9093']

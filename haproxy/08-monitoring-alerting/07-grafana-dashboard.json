@@ -1,0 +1,173 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus",
+      "description": "",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
+    }
+  ],
+  "__requires": [
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "10.0.0"
+    },
+    {
+      "type": "datasource",
+      "id": "prometheus",
+      "name": "Prometheus",
+      "version": "1.0.0"
+    }
+  ],
+  "title": "HAProxy - Full Traffic and Health",
+  "uid": "haproxy-full-monitor",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "proxy",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "query": "label_values(haproxy_backend_status, proxy)",
+        "multi": true,
+        "includeAll": true,
+        "current": { "text": "All", "value": "$__all" }
+      }
+    ]
+  },
+  "panels": [
+
+    {
+      "id": 1, "title": "Backend Status (1=UP, 0=DOWN)", "type": "stat",
+      "gridPos": { "h": 5, "w": 8, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [{ "expr": "haproxy_backend_status{proxy=~\"$proxy\"}", "legendFormat": "{{proxy}}" }],
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [
+        { "color": "red", "value": null }, { "color": "green", "value": 1 }
+      ]}, "mappings": [
+        { "type": "value", "options": { "0": { "text": "DOWN" }, "1": { "text": "UP" } } }
+      ]}}
+    },
+
+    {
+      "id": 2, "title": "Active Servers per Backend", "type": "stat",
+      "gridPos": { "h": 5, "w": 8, "x": 8, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [{ "expr": "haproxy_backend_active_servers{proxy=~\"$proxy\"}", "legendFormat": "{{proxy}}" }]
+    },
+
+    {
+      "id": 3, "title": "Server Status by Name (1=UP,0=DOWN,2=MAINT,3=DRAIN,4=NOLB)", "type": "table",
+      "gridPos": { "h": 5, "w": 8, "x": 16, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [{ "expr": "haproxy_server_status{proxy=~\"$proxy\"}", "format": "table", "instant": true }]
+    },
+
+    {
+      "id": 4, "title": "Frontend - Current Sessions", "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 5 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [{ "expr": "haproxy_frontend_current_sessions{proxy=~\"$proxy\"}", "legendFormat": "{{proxy}}" }]
+    },
+
+    {
+      "id": 5, "title": "Frontend - Incoming Request Rate (req/s)", "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 5 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [{ "expr": "sum by (proxy) (rate(haproxy_frontend_http_requests_total{proxy=~\"$proxy\"}[5m]))", "legendFormat": "{{proxy}}" }]
+    },
+
+    {
+      "id": 6, "title": "Total Connections (Frontend + Backend)", "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        { "expr": "haproxy_frontend_current_sessions{proxy=~\"$proxy\"}", "legendFormat": "frontend: {{proxy}}" },
+        { "expr": "haproxy_backend_current_sessions{proxy=~\"$proxy\"}", "legendFormat": "backend: {{proxy}}" }
+      ]
+    },
+
+    {
+      "id": 7, "title": "Success (2xx) vs Client Error (4xx) vs Server Error (5xx) - rate/s", "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        { "expr": "sum by (proxy) (rate(haproxy_backend_http_responses_total{proxy=~\"$proxy\", code=\"2xx\"}[5m]))", "legendFormat": "2xx success: {{proxy}}" },
+        { "expr": "sum by (proxy) (rate(haproxy_backend_http_responses_total{proxy=~\"$proxy\", code=\"4xx\"}[5m]))", "legendFormat": "4xx client error: {{proxy}}" },
+        { "expr": "sum by (proxy) (rate(haproxy_backend_http_responses_total{proxy=~\"$proxy\", code=\"5xx\"}[5m]))", "legendFormat": "5xx server error: {{proxy}}" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 20 } } }
+    },
+
+    {
+      "id": 8, "title": "Failed Connections / Connection Errors (rate/s)", "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 19 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        { "expr": "sum by (proxy) (rate(haproxy_backend_connection_errors_total{proxy=~\"$proxy\"}[5m]))", "legendFormat": "conn errors: {{proxy}}" },
+        { "expr": "sum by (proxy) (rate(haproxy_backend_response_errors_total{proxy=~\"$proxy\"}[5m]))", "legendFormat": "response errors: {{proxy}}" },
+        { "expr": "sum by (proxy) (rate(haproxy_backend_client_aborts_total{proxy=~\"$proxy\"}[5m]))", "legendFormat": "client aborts: {{proxy}}" },
+        { "expr": "sum by (proxy) (rate(haproxy_backend_server_aborts_total{proxy=~\"$proxy\"}[5m]))", "legendFormat": "server aborts: {{proxy}}" }
+      ]
+    },
+
+    {
+      "id": 9, "title": "Backend Response Time (average, seconds)", "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 19 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [{ "expr": "haproxy_backend_response_time_average_seconds{proxy=~\"$proxy\"}", "legendFormat": "{{proxy}}" }],
+      "fieldConfig": { "defaults": { "unit": "s", "thresholds": { "steps": [
+        { "color": "green", "value": null }, { "color": "yellow", "value": 1 }, { "color": "red", "value": 2 }
+      ]}}}
+    },
+
+    {
+      "id": 10, "title": "Queue Depth per Backend (early-warning signal)", "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 26 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [{ "expr": "haproxy_backend_current_queue{proxy=~\"$proxy\"}", "legendFormat": "{{proxy}}" }]
+    },
+
+    {
+      "id": 11, "title": "Per-Server Response Time (average, seconds)", "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 26 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [{ "expr": "haproxy_server_response_time_average_seconds{proxy=~\"$proxy\"}", "legendFormat": "{{proxy}}/{{server}}" }]
+    },
+
+    {
+      "id": 20, "title": "--- Per-URI Traffic (requires grok_exporter, Part C) ---", "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 33 }
+    },
+
+    {
+      "id": 21, "title": "Top URIs by Request Rate", "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 34 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [{ "expr": "topk(10, sum by (path) (rate(haproxy_uri_requests_total[5m])))", "legendFormat": "{{path}}" }]
+    },
+
+    {
+      "id": 22, "title": "Top URIs by Error Rate (4xx/5xx)", "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 34 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [{ "expr": "topk(10, sum by (path) (rate(haproxy_uri_requests_total{status=~\"4..|5..\"}[5m])))", "legendFormat": "{{path}}" }]
+    },
+
+    {
+      "id": 23, "title": "Per-URI p95 Response Time", "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 42 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [{ "expr": "histogram_quantile(0.95, sum by (path, le) (rate(haproxy_uri_response_time_seconds_bucket[5m])))", "legendFormat": "{{path}}" }],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    }
+  ]
+}

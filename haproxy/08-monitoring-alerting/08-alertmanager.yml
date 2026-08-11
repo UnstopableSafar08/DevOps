@@ -1,0 +1,50 @@
+global:
+  resolve_timeout: 5m
+  smtp_smarthost: 'smtp.gmail.com:587'
+  smtp_from: 'alertmanager@yourdomain.com'
+  smtp_auth_username: 'alertmanager@yourdomain.com'
+  smtp_auth_password: 'your-app-password'
+  smtp_require_tls: true
+
+route:
+  receiver: 'default'
+  group_by: ['alertname', 'proxy']
+  group_wait: 10s
+  group_interval: 5m
+  repeat_interval: 3h
+  routes:
+    - match:
+        severity: critical
+      receiver: 'haproxy-critical'
+      repeat_interval: 1h        # re-nag faster for actual outages
+
+    - match:
+        severity: warning
+      receiver: 'haproxy-warning'
+      repeat_interval: 6h        # slow-response doesn't need hourly nagging
+
+receivers:
+  - name: 'default'
+    email_configs:
+      - to: 'ocean@yourdomain.com'
+        send_resolved: true
+
+  - name: 'haproxy-critical'
+    email_configs:
+      - to: 'ocean@yourdomain.com'
+        send_resolved: true
+    webhook_configs:
+      - url: 'http://localhost:2000/alertmanager'   # prometheus-msteams, same setup as before
+        send_resolved: true
+
+  - name: 'haproxy-warning'
+    email_configs:
+      - to: 'ocean@yourdomain.com'
+        send_resolved: true
+    webhook_configs:
+      - url: 'http://localhost:2000/alertmanager'
+        send_resolved: true
+
+# Uses the same docker-compose.yml (Alertmanager + prometheus-msteams) and
+# the same Teams Workflows webhook URL from the last session — no need to
+# rebuild that part, just merge these routes into the existing alertmanager.yml.

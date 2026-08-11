@@ -1,0 +1,56 @@
+{{/*
+  HAProxy Alert Teams Card Template — enhanced MessageCard
+  Drop-in replacement for default-message-card.tmpl in prometheus-msteams'
+  working directory. Reference it via -template-file flag or per-connector
+  template_file: in prometheus-msteams' own config — not alertmanager.yml.
+*/}}
+{{ $status := .Status }}
+{{ $color := "8C1A1A" }}
+{{ if eq $status "resolved" }}{{ $color = "1E8E3E" }}{{ end }}
+{
+  "@type": "MessageCard",
+  "@context": "http://schema.org/extensions",
+  "themeColor": "{{ $color }}",
+  "summary": "{{ .CommonAnnotations.summary }}",
+  "title": "{{ if eq $status "firing" }}🔴{{ else }}✅{{ end }} {{ .CommonLabels.alertname }} — {{ $status | title }}",
+  "sections": [
+    {
+      "activityTitle": "**{{ .CommonAnnotations.summary }}**",
+      "activitySubtitle": "{{ len .Alerts }} alert(s) &nbsp;•&nbsp; severity: {{ .CommonLabels.severity }} &nbsp;•&nbsp; backend: {{ .CommonLabels.proxy }}",
+      "markdown": true,
+      "facts": [
+        {{ $externalUrl := .ExternalURL }}
+        {{- range $index, $alert := .Alerts }}
+        {{- if $index }},{{- end }}
+        {
+          "name": "{{ if $alert.Labels.server }}{{ $alert.Labels.server }}{{ else }}{{ $alert.Labels.proxy }}{{ end }}",
+          "value": "{{ $alert.Annotations.description }}"
+        }
+        {{- end }}
+      ]
+    },
+    {
+      "startGroup": true,
+      "facts": [
+        {
+          "name": "Status",
+          "value": "{{ $status | title }}"
+        },
+        {
+          "name": "Started",
+          "value": "{{ (index .Alerts 0).StartsAt.Format "2006-01-02 15:04:05 MST" }}"
+        }
+      ],
+      "markdown": true
+    }
+  ],
+  "potentialAction": [
+    {
+      "@type": "OpenUri",
+      "name": "View in Alertmanager",
+      "targets": [
+        { "os": "default", "uri": "{{ .ExternalURL }}" }
+      ]
+    }
+  ]
+}
