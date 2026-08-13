@@ -49,7 +49,7 @@ df -i                     # inode exhaustion (silent killer)
 du -sh /* 2>/dev/null | sort -rh | head -10   # biggest dirs
 iostat -xz 1 5             # disk IO, %util, await
 ```
-**df/du mismatch (disk full but du says less)?** → deleted-but-open files. See §8.
+**df/du mismatch (disk full but du says less)?** → deleted-but-open files. See#8.
 
 ---
 
