@@ -4,6 +4,23 @@ Quick-reference for diagnosing prod Linux issues. Check top-to-bottom: system �
 
 ---
 
+## Table of Contents
+
+1. [First 60 Seconds — Triage](#1-first-60-seconds--triage)
+2. [CPU](#2-cpu)
+3. [Memory](#3-memory)
+4. [Disk / Filesystem](#4-disk--filesystem)
+5. [Network](#5-network)
+6. [Service / Process Health](#6-service--process-health)
+7. [Application / Logs](#7-application--logs)
+8. [Deleted-but-Open Files (space leak)](#8-deleted-but-open-files-space-leak)
+9. [Load Spike / Zombie / Runaway Processes](#9-load-spike--zombie--runaway-processes)
+10. [Kubernetes / k3s](#10-kubernetes--k3s-if-applicable)
+11. [Certificates / TLS](#11-certificates--tls-mtls-environments)
+12. [Escalation Checklist](#12-escalation-checklist-before-paging--handing-off)
+
+---
+
 ## 1. First 60 Seconds — Triage
 
 ```bash
@@ -49,7 +66,7 @@ df -i                     # inode exhaustion (silent killer)
 du -sh /* 2>/dev/null | sort -rh | head -10   # biggest dirs
 iostat -xz 1 5             # disk IO, %util, await
 ```
-**df/du mismatch (disk full but du says less)?** → deleted-but-open files. See#8.
+**df/du mismatch (disk full but du says less)?** → deleted-but-open files. See #8.
 
 ---
 
